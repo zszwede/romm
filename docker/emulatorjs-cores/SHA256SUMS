@@ -1,0 +1,12 @@
+af693fc03c1c1abf825b729e08ac22ca65c22e864f6cf064494bf31da30d593d  ./atari800-legacy-wasm.data
+d0d0a57e2da3bc40cb5b3ae04f77a16854df706f6b1bef241c5ed9e3bb1a2c8e  ./atari800-thread-legacy-wasm.data
+a6961ad0e3f75cef60f70eb632306dea96cc160d50cecc96baf773e5b3748894  ./atari800-thread-wasm.data
+3462e5c1234f814d5afb78477a9f9363605b4282020a24ed5f965311b5e75bd9  ./atari800-wasm.data
+c37764bc3579cd888cf27070a0e01d31b2e11b57862420babc23e6aba3643364  ./hatari2014-legacy-wasm.data
+c3755867e6c24405c1fb56d6627ea5c4331e998138c4f3c8678b29a9520aed81  ./hatari2014-thread-legacy-wasm.data
+c75c9e8137bc3c08d6b1695dd8efe53c85a2b5fc511446106e058c433812dad0  ./hatari2014-thread-wasm.data
+f3cc406f24c196c10e83bc3fa3ebb0f032751198e8f7b5e6d28827db7534998a  ./hatari2014-wasm.data
+8f80aa8477cb9112a2d34e1abe3d3cc5bd09d8faf7810ae9b8a0f61fe2fb24d1  ./puae-legacy-wasm.data
+fb924d28db983bd24454feaff38efb1218de41a336ca32699cb6552989079778  ./puae-thread-legacy-wasm.data
+bb546e4e17ab7e6ec963e8fef74ff7436587ec487bbc2461b7febcb13b703fb6  ./puae-thread-wasm.data
+2eeeae3fe28884c8f730a2eec3f66fee35845728395ce14493067bbafe4b1a2c  ./puae-wasm.data

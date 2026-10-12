@@ -407,6 +407,7 @@ const _EJS_CORES_MAP: Record<string, string[]> = {
   acpc: ["cap32", "crocods"],
   amiga: ["puae"],
   "amiga-cd32": ["puae"],
+  "commodore-cdtv": ["puae"],
   arcade: [
     "mame2003_plus",
     "mame2003",
@@ -420,6 +421,8 @@ const _EJS_CORES_MAP: Record<string, string[]> = {
   "atari-2600-plus": ["stella2014"],
   atari5200: ["a5200"],
   atari7800: ["prosystem"],
+  atari800: ["atari800"],
+  "atari-st": ["hatari2014"],
   "c-plus-4": ["vice_xplus4"],
   c64: ["vice_x64sc", "vice_x64"],
   cpet: ["vice_xpet"],

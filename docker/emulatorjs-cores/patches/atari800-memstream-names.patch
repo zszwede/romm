@@ -1,0 +1,14 @@
+diff --git a/Makefile b/Makefile
+index 6be9276..14f95a7 100644
+--- a/Makefile
++++ b/Makefile
+@@ -395,6 +395,9 @@ else ifeq ($(platform), miyoo)
+ else ifeq ($(platform), emscripten)
+ 	TARGET := $(TARGET_NAME)_libretro_emscripten.bc
+ 	STATIC_LINKING=1
++	# The frontend is linked in statically and has its own, older memstream_*
++	# functions with different signatures; keep ours under separate names.
++	PLATFORM_DEFINES += -Dmemstream_open=a800_memstream_open -Dmemstream_close=a800_memstream_close -Dmemstream_read=a800_memstream_read -Dmemstream_write=a800_memstream_write -Dmemstream_getc=a800_memstream_getc -Dmemstream_putc=a800_memstream_putc -Dmemstream_gets=a800_memstream_gets -Dmemstream_pos=a800_memstream_pos -Dmemstream_get_size=a800_memstream_get_size -Dmemstream_rewind=a800_memstream_rewind -Dmemstream_seek=a800_memstream_seek -Dmemstream_get_ptr=a800_memstream_get_ptr
+ # cross Windows
+ else ifeq ($(platform), wincross64)
+ 	TARGET := $(TARGET_NAME)_libretro.dll

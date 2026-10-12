@@ -206,6 +206,10 @@ ADD --checksum=sha256:${EMULATORJS_SHA256} \
     /downloads/emulatorjs.7z
 RUN 7z x -y /downloads/emulatorjs.7z -o/emulatorjs
 
+# Cores the release lacks (atari800, hatari2014) or ships broken (puae).
+# Sources and patches: docker/emulatorjs-cores/README.md
+COPY ./docker/emulatorjs-cores/*.data /emulatorjs/data/cores/
+
 ARG RUFFLE_VERSION=nightly-2025-08-14
 ARG RUFFLE_FILE=ruffle-nightly-2025_08_14-web-selfhosted.zip
 ARG RUFFLE_SHA256=178870c5e7dd825a8df35920dfc5328d83e53f3c4d5d95f70b1ea9cd13494151
