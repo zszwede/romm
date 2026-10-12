@@ -156,6 +156,8 @@ export function romFixture(overrides: Partial<SimpleRom> = {}): SimpleRom {
     updated_at: WRITTEN_AT,
     missing_from_fs: false,
     is_physical: false,
+    is_virtual: false,
+    source_url: null,
     has_file_on_disk: false,
     upc: null,
     has_notes: false,

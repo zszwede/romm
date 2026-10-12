@@ -50,6 +50,7 @@ const buildDefaultFilterState = () => ({
   filterSoundtrack: null as boolean | null, // null = all, true = has soundtrack, false = no soundtrack
   filterMissing: null as boolean | null, // null = all, true = missing, false = not missing
   filterPhysical: null as boolean | null, // null = all, true = physical, false = has a file
+  filterVirtual: null as boolean | null, // null = all, true = virtual, false = not virtual
   filterVerified: null as boolean | null, // null = all, true = verified, false = not verified
   selectedPlatform: null as Platform | null,
   selectedPlatforms: [] as Platform[],
@@ -449,6 +450,27 @@ export default defineStore("galleryFilter", {
         this.filterVerified = null;
       }
     },
+    setFilterVirtual(value: boolean | null) {
+      this.filterVirtual = value;
+    },
+    switchFilterVirtual() {
+      if (this.filterVirtual === null) {
+        this.filterVirtual = true;
+      } else if (this.filterVirtual === true) {
+        this.filterVirtual = false;
+      } else {
+        this.filterVirtual = null;
+      }
+    },
+    // Quick EU/US region filter: toggle USA + Europe with "any" logic on/off.
+    toggleRegionsEuUs() {
+      const euUs = ["USA", "Europe"];
+      const isActive =
+        this.selectedRegions.length === euUs.length &&
+        euUs.every((r) => this.selectedRegions.includes(r));
+      this.selectedRegions = isActive ? [] : [...euUs];
+      this.regionsLogic = "any";
+    },
     isFiltered() {
       return Boolean(
         this.filterMatched !== null ||
@@ -461,6 +483,7 @@ export default defineStore("galleryFilter", {
         this.filterSoundtrack !== null ||
         this.filterMissing !== null ||
         this.filterPhysical !== null ||
+        this.filterVirtual !== null ||
         this.filterVerified !== null ||
         this.selectedPlatform ||
         this.selectedPlatforms.length > 0 ||
@@ -512,6 +535,7 @@ export default defineStore("galleryFilter", {
       this.filterSoundtrack = null;
       this.filterMissing = null;
       this.filterPhysical = null;
+      this.filterVirtual = null;
       this.filterVerified = null;
       // Reset logic operators to default
       this.genresLogic = "any";

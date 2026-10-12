@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import type { Emitter } from "mitt";
+import { computed, inject, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import AdminMenu from "@/components/common/Game/AdminMenu.vue";
 import PlayBtn from "@/components/common/Game/PlayBtn.vue";
@@ -9,16 +10,46 @@ import storeConfig from "@/stores/config";
 import storeDownload from "@/stores/download";
 import storeHeartbeat from "@/stores/heartbeat";
 import type { SimpleRom } from "@/stores/roms";
+import type { Events } from "@/types/emitter";
 import { isEJSEmulationSupported, isRuffleEmulationSupported } from "@/utils";
 import { useCan } from "@/v2/composables/useCan";
 
 const props = defineProps<{ rom: SimpleRom; sizeActionBar: number }>();
 const { t } = useI18n();
 const emit = defineEmits(["menu-open", "menu-close"]);
+const emitter = inject<Emitter<Events>>("emitter");
 const downloadStore = storeDownload();
 const auth = storeAuth();
 const configStore = storeConfig();
 const heartbeatStore = storeHeartbeat();
+
+const confirmDownloadOpen = ref(false);
+const materializing = ref(false);
+
+async function confirmVirtualDownload() {
+  if (materializing.value) return;
+  materializing.value = true;
+  try {
+    await romApi.downloadVirtualRom({ romId: props.rom.id });
+    emitter?.emit("snackbarShow", {
+      msg: `Downloading ${props.rom.name} from archive.org…`,
+      icon: "mdi-cloud-download",
+      color: "green",
+      timeout: 4000,
+    });
+    confirmDownloadOpen.value = false;
+  } catch (err) {
+    const e = err as { response?: { data?: { detail?: string } } };
+    emitter?.emit("snackbarShow", {
+      msg: `Couldn't start download: ${e?.response?.data?.detail ?? "unknown error"}`,
+      icon: "mdi-close-circle",
+      color: "red",
+      timeout: 5000,
+    });
+  } finally {
+    materializing.value = false;
+  }
+}
 
 const computedSize = computed(() => {
   return props.sizeActionBar === 1 ? "small" : "x-small";
@@ -55,7 +86,18 @@ watch(menuOpen, (val) => {
 
 <template>
   <v-row no-gutters>
-    <v-col class="d-flex">
+    <v-col v-if="rom.is_virtual" class="d-flex">
+      <v-btn
+        class="action-bar-btn-small flex-grow-1"
+        :size="computedSize"
+        icon="mdi-cloud-download-outline"
+        variant="text"
+        rounded="0"
+        :aria-label="`${t('rom.download')} ${rom.name}`"
+        @click.prevent="confirmDownloadOpen = true"
+      />
+    </v-col>
+    <v-col v-else class="d-flex">
       <v-btn
         class="action-bar-btn-small flex-grow-1"
         :size="computedSize"
@@ -67,7 +109,10 @@ watch(menuOpen, (val) => {
         @click.prevent="romApi.downloadRom({ rom })"
       />
     </v-col>
-    <v-col v-if="isEmulationSupported || isAprilFools" class="d-flex">
+    <v-col
+      v-if="!rom.is_virtual && (isEmulationSupported || isAprilFools)"
+      class="d-flex"
+    >
       <PlayBtn
         :rom="rom"
         icon-embedded
@@ -103,6 +148,28 @@ watch(menuOpen, (val) => {
       </v-menu>
     </v-col>
   </v-row>
+
+  <v-dialog v-model="confirmDownloadOpen" max-width="420" @click:outside="confirmDownloadOpen = false">
+    <v-card>
+      <v-card-title class="text-body-1">{{ t("rom.download") }}</v-card-title>
+      <v-card-text>
+        Download <strong>{{ rom.name }}</strong> from archive.org? It becomes a
+        normal game once the download finishes.
+      </v-card-text>
+      <v-card-actions class="justify-end">
+        <v-btn :disabled="materializing" @click="confirmDownloadOpen = false">
+          {{ t("common.cancel") }}
+        </v-btn>
+        <v-btn
+          color="primary"
+          :loading="materializing"
+          @click="confirmVirtualDownload"
+        >
+          {{ t("rom.download") }}
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
 </template>
 
 <style scoped>

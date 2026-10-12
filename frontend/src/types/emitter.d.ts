@@ -60,6 +60,7 @@ export type Events = {
   showDeleteRomDialog: SimpleRom[];
   showUploadRomDialog: Platform | null;
   showAddPhysicalGameDialog: Platform | null;
+  showAddVirtualSourceDialog: Platform | null;
   showDeleteFirmwareDialog: FirmwareSchema[];
   addFirmwareDialog: null;
   showAddPlatformDialog: null;

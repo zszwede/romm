@@ -177,6 +177,16 @@ export default defineStore("roms", {
         platformIds = [galleryFilter.selectedPlatform.id];
       }
 
+      // When browsing a single platform with its "show virtual" toggle off and
+      // no explicit virtual filter, hide virtual ROMs (send virtual=false).
+      let filterVirtual = galleryFilter.filterVirtual;
+      if (filterVirtual === null && this.currentPlatform) {
+        const showVirtual = userStorage.getItem(
+          `platform.${this.currentPlatform.id}.showVirtual`,
+        );
+        if (showVirtual === "false") filterVirtual = false;
+      }
+
       const params = {
         searchTerm: galleryFilter.searchTerm,
         platformIds: platformIds,
@@ -194,6 +204,8 @@ export default defineStore("roms", {
         filterPlayables: galleryFilter.filterPlayables,
         filterRA: galleryFilter.filterRA,
         filterMissing: galleryFilter.filterMissing,
+        filterPhysical: galleryFilter.filterPhysical,
+        filterVirtual: filterVirtual,
         filterVerified: galleryFilter.filterVerified,
         selectedGenres: galleryFilter.selectedGenres,
         selectedFranchises: galleryFilter.selectedFranchises,

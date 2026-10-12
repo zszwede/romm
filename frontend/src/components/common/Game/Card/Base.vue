@@ -368,6 +368,15 @@ onBeforeUnmount(() => {
                     chip-density="compact"
                   />
                   <v-chip
+                    v-if="rom.is_virtual"
+                    class="translucent mr-1 mb-1 px-1"
+                    color="secondary"
+                    density="compact"
+                    title="Virtual game — download from archive.org"
+                  >
+                    <v-icon>mdi-cloud-outline</v-icon>
+                  </v-chip>
+                  <v-chip
                     v-if="rom.hasheous_id"
                     class="translucent mr-1 mb-1 px-1"
                     density="compact"

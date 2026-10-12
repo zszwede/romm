@@ -2,7 +2,7 @@
 import { useLocalStorage } from "@vueuse/core";
 import type { Emitter } from "mitt";
 import { storeToRefs } from "pinia";
-import { computed, inject } from "vue";
+import { computed, inject, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import AdminMenu from "@/components/common/Game/AdminMenu.vue";
@@ -47,6 +47,35 @@ const galleryFilterStore = storeGalleryFilter();
 const collectionsStore = storeCollections();
 const platformsStore = storePlatforms();
 const emitter = inject<Emitter<Events>>("emitter");
+
+const virtualConfirmRom = ref<SimpleRom | null>(null);
+const materializing = ref(false);
+
+async function confirmVirtualDownload() {
+  const rom = virtualConfirmRom.value;
+  if (!rom || materializing.value) return;
+  materializing.value = true;
+  try {
+    await romApi.downloadVirtualRom({ romId: rom.id });
+    emitter?.emit("snackbarShow", {
+      msg: `Downloading ${rom.name} from archive.org…`,
+      icon: "mdi-cloud-download",
+      color: "green",
+      timeout: 4000,
+    });
+    virtualConfirmRom.value = null;
+  } catch (err) {
+    const e = err as { response?: { data?: { detail?: string } } };
+    emitter?.emit("snackbarShow", {
+      msg: `Couldn't start download: ${e?.response?.data?.detail ?? "unknown error"}`,
+      icon: "mdi-close-circle",
+      color: "red",
+      timeout: 5000,
+    });
+  } finally {
+    materializing.value = false;
+  }
+}
 
 const HEADERS = [
   {
@@ -428,6 +457,16 @@ function updateOptions({ sortBy }: { sortBy: SortBy }) {
         <div class="game-list-table-cell d-table-cell px-4">
           <v-btn-group density="compact">
             <v-btn
+              v-if="item.is_virtual"
+              variant="text"
+              size="small"
+              :aria-label="`Download ${item.name} from archive.org`"
+              @click.prevent="virtualConfirmRom = item"
+            >
+              <v-icon>mdi-cloud-download-outline</v-icon>
+            </v-btn>
+            <v-btn
+              v-else
               :disabled="
                 downloadStore.value.includes(item.id) || item.missing_from_fs
               "
@@ -438,7 +477,13 @@ function updateOptions({ sortBy }: { sortBy: SortBy }) {
             >
               <v-icon>mdi-download</v-icon>
             </v-btn>
-            <PlayBtn :rom="item" variant="text" size="small" @click.prevent />
+            <PlayBtn
+              v-if="!item.is_virtual"
+              :rom="item"
+              variant="text"
+              size="small"
+              @click.prevent
+            />
             <v-menu
               v-if="
                 auth.scopes.includes('roms.write') ||
@@ -465,6 +510,32 @@ function updateOptions({ sortBy }: { sortBy: SortBy }) {
       </router-link>
     </template>
   </v-data-table-server>
+
+  <v-dialog
+    :model-value="virtualConfirmRom !== null"
+    max-width="420"
+    @update:model-value="virtualConfirmRom = null"
+  >
+    <v-card v-if="virtualConfirmRom">
+      <v-card-title class="text-body-1">{{ t("rom.download") }}</v-card-title>
+      <v-card-text>
+        Download <strong>{{ virtualConfirmRom.name }}</strong> from archive.org?
+        It becomes a normal game once the download finishes.
+      </v-card-text>
+      <v-card-actions class="justify-end">
+        <v-btn :disabled="materializing" @click="virtualConfirmRom = null">
+          {{ t("common.cancel") }}
+        </v-btn>
+        <v-btn
+          color="primary"
+          :loading="materializing"
+          @click="confirmVirtualDownload"
+        >
+          {{ t("rom.download") }}
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
 </template>
 
 <style scoped>

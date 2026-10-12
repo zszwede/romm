@@ -121,7 +121,11 @@ export function useGameActions(
 
   // Download, the copied link and the QR code all resolve to the download
   // endpoint, which has nothing to serve without a file behind the rom.
-  const canDownload = computed(() => Boolean(getRom()?.has_file_on_disk));
+  const canDownload = computed(() => {
+    const rom = getRom();
+    // Virtual ROMs have no file yet, but "download" fetches it from archive.org.
+    return Boolean(rom?.has_file_on_disk || rom?.is_virtual);
+  });
 
   // Only the detailed rom carries them, already narrowed to what this caller
   // can convert its single file to.
@@ -428,9 +432,27 @@ export function useGameActions(
     if (path) void router.push(path);
   }
 
+  async function downloadVirtual() {
+    const rom = getRom();
+    if (!rom) return;
+    try {
+      await romApi.downloadVirtualRom({ romId: rom.id });
+      snackbar.success(`Downloading ${rom.name ?? rom.fs_name} from archive.org…`, {
+        icon: "mdi-cloud-download",
+      });
+    } catch {
+      snackbar.error("Couldn't start download", { icon: "mdi-close-circle" });
+    }
+  }
+
   function download() {
     const rom = getRom();
     if (!rom) return;
+    // A virtual ROM has no file yet; fetch it from its archive.org source.
+    if (rom.is_virtual) {
+      void downloadVirtual();
+      return;
+    }
     const href = getDownloadPath({ rom });
     const a = document.createElement("a");
     a.href = href;

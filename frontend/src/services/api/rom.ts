@@ -192,6 +192,7 @@ export interface GetRomsParams {
   filterSoundtrack?: boolean | null;
   filterMissing?: boolean | null;
   filterPhysical?: boolean | null;
+  filterVirtual?: boolean | null;
   filterVerified?: boolean | null;
   groupByMetaId?: boolean;
   // Multi-value filters
@@ -258,6 +259,7 @@ export function buildGetRomsQuery({
   filterSoundtrack = null,
   filterMissing = null,
   filterPhysical = null,
+  filterVirtual = null,
   filterVerified = null,
   groupByMetaId = false,
   selectedGenres = null,
@@ -418,6 +420,7 @@ export function buildGetRomsQuery({
     ...(filterPlayables !== null ? { playable: filterPlayables } : {}),
     ...(filterMissing !== null ? { missing: filterMissing } : {}),
     ...(filterPhysical !== null ? { physical: filterPhysical } : {}),
+    ...(filterVirtual !== null ? { virtual: filterVirtual } : {}),
     ...(filterRA !== null ? { has_ra: filterRA } : {}),
     ...(filterSaves !== null ? { has_saves: filterSaves } : {}),
     ...(filterStates !== null ? { has_states: filterStates } : {}),
@@ -606,6 +609,13 @@ async function createPhysicalRom({
     upc: upc || null,
   };
   return api.post<DetailedRom>("/roms/physical", payload);
+}
+
+/** Download a virtual ROM's file from its archive.org source. The backend runs
+ *  the download in the background and clears `is_virtual` once it completes, so
+ *  this resolves as soon as the download has been queued. */
+async function downloadVirtualRom({ romId }: { romId: number }) {
+  return api.post<{ msg: string }>(`/virtual/roms/${romId}/download`);
 }
 
 function triggerFileDownload(href: string) {
@@ -1105,6 +1115,7 @@ export default {
   bulkDownloadRoms,
   searchRom,
   createPhysicalRom,
+  downloadVirtualRom,
   updateRom,
   uploadManuals,
   removeManual,

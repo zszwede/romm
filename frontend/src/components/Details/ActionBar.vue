@@ -28,6 +28,34 @@ const { boxartStyle } = useGameAnimation({
   rom: props.rom,
 });
 
+const confirmDownloadOpen = ref(false);
+const materializing = ref(false);
+
+async function confirmVirtualDownload() {
+  if (materializing.value) return;
+  materializing.value = true;
+  try {
+    await romApi.downloadVirtualRom({ romId: props.rom.id });
+    emitter?.emit("snackbarShow", {
+      msg: `Downloading ${props.rom.name} from archive.org…`,
+      icon: "mdi-cloud-download",
+      color: "green",
+      timeout: 4000,
+    });
+    confirmDownloadOpen.value = false;
+  } catch (err) {
+    const e = err as { response?: { data?: { detail?: string } } };
+    emitter?.emit("snackbarShow", {
+      msg: `Couldn't start download: ${e?.response?.data?.detail ?? "unknown error"}`,
+      icon: "mdi-close-circle",
+      color: "red",
+      timeout: 5000,
+    });
+  } finally {
+    materializing.value = false;
+  }
+}
+
 async function copyDownloadLink(rom: DetailedRom) {
   const downloadLink = getDownloadLink({
     rom,
@@ -59,6 +87,23 @@ async function copyDownloadLink(rom: DetailedRom) {
       }"
     >
       <v-btn
+        v-if="rom.is_virtual"
+        class="flex-grow-1"
+        :aria-label="`Download ${rom.name} from archive.org`"
+        @click="confirmDownloadOpen = true"
+      >
+        <v-tooltip
+          activator="parent"
+          location="top"
+          transition="fade-transition"
+          open-delay="1000"
+        >
+          {{ t("rom.download") }} {{ rom.name }} (archive.org)
+        </v-tooltip>
+        <v-icon icon="mdi-cloud-download-outline" size="large" />
+      </v-btn>
+      <v-btn
+        v-if="!rom.is_virtual"
         :disabled="downloadStore.value.includes(rom.id) || rom.missing_from_fs"
         class="flex-grow-1"
         :aria-label="`Download ${rom.name}`"
@@ -80,6 +125,7 @@ async function copyDownloadLink(rom: DetailedRom) {
         <v-icon icon="mdi-download" size="large" />
       </v-btn>
       <v-btn
+        v-if="!rom.is_virtual"
         :disabled="rom.missing_from_fs"
         :aria-label="`Copy download link ${rom.name}`"
         class="flex-grow-1"
@@ -95,7 +141,7 @@ async function copyDownloadLink(rom: DetailedRom) {
         </v-tooltip>
         <v-icon icon="mdi-content-copy" />
       </v-btn>
-      <PlayBtn :rom="rom" class="flex-grow-1" />
+      <PlayBtn v-if="!rom.is_virtual" :rom="rom" class="flex-grow-1" />
       <v-btn
         v-if="isNDSRom"
         :disabled="rom.missing_from_fs"
@@ -127,5 +173,31 @@ async function copyDownloadLink(rom: DetailedRom) {
     </v-btn-group>
 
     <CopyRomDownloadLinkDialog />
+
+    <v-dialog
+      v-model="confirmDownloadOpen"
+      max-width="420"
+      @click:outside="confirmDownloadOpen = false"
+    >
+      <v-card>
+        <v-card-title class="text-body-1">{{ t("rom.download") }}</v-card-title>
+        <v-card-text>
+          Download <strong>{{ rom.name }}</strong> from archive.org? It becomes a
+          normal game once the download finishes.
+        </v-card-text>
+        <v-card-actions class="justify-end">
+          <v-btn :disabled="materializing" @click="confirmDownloadOpen = false">
+            {{ t("common.cancel") }}
+          </v-btn>
+          <v-btn
+            color="primary"
+            :loading="materializing"
+            @click="confirmVirtualDownload"
+          >
+            {{ t("rom.download") }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
