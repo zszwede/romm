@@ -1,0 +1,13 @@
+{
+  "server": "ia600705.us.archive.org",
+  "dir": "/16/items/Atari800RomCollectionByGhostware",
+  "files": [
+    {"name": "Grad Nord.zip", "source": "original", "format": "ZIP", "size": "117531"},
+    {"name": "007 - The Living Daylights (USA).zip", "source": "original", "format": "ZIP", "size": "25531"},
+    {"name": "Boulder Dash (Europe).zip", "source": "original", "format": "ZIP", "size": "21310"},
+    {"name": "subdir/180 (Japan).zip", "source": "original", "format": "ZIP", "size": "16200"},
+    {"name": "cover.jpg", "source": "derivative", "format": "JPEG", "size": "9000"},
+    {"name": "Atari800RomCollectionByGhostware_meta.xml", "source": "metadata", "format": "Metadata", "size": "985"},
+    {"name": "Atari800RomCollectionByGhostware_archive.torrent", "source": "original", "format": "Archive BitTorrent", "size": "26839"}
+  ]
+}
