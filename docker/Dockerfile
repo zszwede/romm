@@ -209,6 +209,14 @@ RUN 7z x -y /downloads/emulatorjs.7z -o/emulatorjs
 # Cores the release lacks (atari800, hatari2014) or ships broken (puae).
 # Sources and patches: docker/emulatorjs-cores/README.md
 COPY ./docker/emulatorjs-cores/*.data /emulatorjs/data/cores/
+# Those cores' newer Emscripten runtime refuses the ArrayBuffer that 4.2.3
+# passes when it writes EJS_externalFiles, leaving every file empty.
+RUN sed -i 's/this\.FS\.writeFile(t,e)}mkdir(/this.FS.writeFile(t,e instanceof ArrayBuffer?new Uint8Array(e):e)}mkdir(/' \
+        /emulatorjs/data/emulator.min.js && \
+    sed -i 's/this\.FS\.writeFile(path, data);/this.FS.writeFile(path, data instanceof ArrayBuffer ? new Uint8Array(data) : data);/' \
+        /emulatorjs/data/src/GameManager.js && \
+    grep -q 'e instanceof ArrayBuffer?new Uint8Array(e):e)}mkdir(' /emulatorjs/data/emulator.min.js && \
+    grep -q 'data instanceof ArrayBuffer ? new Uint8Array(data) : data' /emulatorjs/data/src/GameManager.js
 
 ARG RUFFLE_VERSION=nightly-2025-08-14
 ARG RUFFLE_FILE=ruffle-nightly-2025_08_14-web-selfhosted.zip
