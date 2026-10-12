@@ -172,6 +172,13 @@ class RomFilterParams(BaseModel):
         bool | None,
         Field(description="Whether the rom is a physical copy with no file."),
     ] = None
+    virtual: Annotated[
+        bool | None,
+        Field(
+            description="Whether the rom is virtual (listed from an archive.org "
+            "source, not yet downloaded)."
+        ),
+    ] = None
     has_ra: Annotated[
         bool | None,
         Field(description="Whether the rom has RetroAchievements data."),

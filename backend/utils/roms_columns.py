@@ -522,6 +522,11 @@ PLAIN_COLUMNS: list[sa.Column[Any]] = [
     ),
     sa.Column(SEARCH_TITLES_COLUMN, sa.Text()),
     sa.Column(MIN_AGE_COLUMN, sa.Integer()),
+    # Virtual ROMs are file-less rows sourced from an archive.org index: like
+    # physical games they carry metadata with no file on disk, but keep the URL
+    # to fetch the game from, and stop being virtual once it is downloaded.
+    sa.Column("is_virtual", sa.Boolean(), nullable=False, server_default=sa.false()),
+    sa.Column("source_url", sa.String(length=1024)),
 ]
 
 

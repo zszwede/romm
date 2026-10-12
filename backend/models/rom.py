@@ -1044,6 +1044,13 @@ class Rom(BaseModel):
     is_physical: Mapped[bool] = mapped_column(default=False, nullable=False)
     upc: Mapped[str | None] = mapped_column(String(length=64), default=None)
 
+    # Virtual games are file-less rows sourced from an archive.org index: like
+    # physical games they carry metadata with no file on disk, but keep the URL to
+    # fetch the game from and become normal ROMs once downloaded. They must never
+    # be flagged missing or cleaned up while still virtual.
+    is_virtual: Mapped[bool] = mapped_column(default=False, nullable=False)
+    source_url: Mapped[str | None] = mapped_column(String(length=1024), default=None)
+
     platform_id: Mapped[int] = mapped_column(
         ForeignKey("platforms.id", ondelete="CASCADE")
     )
@@ -1245,12 +1252,16 @@ class Rom(BaseModel):
     def has_file_on_disk(self) -> bool:
         """Whether a readable file backs this rom.
 
-        False for two different reasons that every file-dependent surface
+        False for three different reasons that every file-dependent surface
         (download, playback, the ES-DE and Pegasus exporters, the device feeds)
-        needs to treat alike: a physical game never had a file, and a missing
-        one no longer does.
+        needs to treat alike: a physical game never had a file, a virtual one
+        has not been downloaded yet, and a missing one no longer does.
         """
-        return not self.is_physical and not self.missing_from_fs
+        return (
+            not self.is_physical
+            and not self.is_virtual
+            and not self.missing_from_fs
+        )
 
     def has_m3u_file(self) -> bool:
         """
