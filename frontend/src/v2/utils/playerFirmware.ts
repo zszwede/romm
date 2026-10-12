@@ -35,7 +35,9 @@ export function resolveInitialFirmware<T extends FirmwareLike>({
   return fromStorage ?? fromConfig ?? fromSingleOption ?? null;
 }
 
-const SYSTEM_DIRECTORY = "/home/web_user/retroarch/userdata/system";
+// The bundled PUAE build (docker/emulatorjs-cores) has no system directory set
+// and falls back to the content directory, which is the root.
+const SYSTEM_DIRECTORY = "";
 const UNSAFE_FILE_NAME = /^\.{1,2}$|[\\/]/;
 // EJS_externalFiles writes an archive to a file key raw (4.2.3) or as its first
 // entry (nightly), so archives keep loading through EJS_biosUrl.

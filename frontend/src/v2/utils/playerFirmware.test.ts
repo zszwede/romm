@@ -111,9 +111,9 @@ const firmware = [
 describe("firmwareExternalFiles", () => {
   it("places every available Kickstart in the PUAE system directory", () => {
     expect(firmwareExternalFiles("puae", firmware)).toEqual({
-      "/home/web_user/retroarch/userdata/system/kick34005.A500":
+      "/kick34005.A500":
         "/api/firmware/1/content/kick34005.A500",
-      "/home/web_user/retroarch/userdata/system/kick40068.A1200":
+      "/kick40068.A1200":
         "/api/firmware/2/content/kick40068.A1200",
     });
   });
@@ -135,7 +135,7 @@ describe("firmwareExternalFiles", () => {
 
   it("encodes the name in the URL but keeps it verbatim in the path", () => {
     expect(firmwareExternalFiles("puae", [fw(5, "kick #1?.rom")])).toEqual({
-      "/home/web_user/retroarch/userdata/system/kick #1?.rom":
+      "/kick #1?.rom":
         "/api/firmware/5/content/kick%20%231%3F.rom",
     });
   });

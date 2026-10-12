@@ -41,3 +41,8 @@ default branch), apply the patches there, and run it again. Then replace
 
 A platform also needs an entry in `_EJS_CORES_MAP` (`frontend/src/utils/index.ts`)
 to get a Play button. Rebuild script for `puae`: github.com/zszwede/ejs-puae-fix.
+
+The rebuilt `puae` reads Kickstarts from the content directory (`/`), not from
+`userdata/system` as the 4.2.3 build did. `SYSTEM_DIRECTORY` in
+`frontend/src/v2/utils/playerFirmware.ts` is set to match; restore it when
+these cores are dropped.
