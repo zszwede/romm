@@ -1,5 +1,6 @@
 from .assets_handler import FSAssetsHandler
 from .firmware_handler import FSFirmwareHandler
+from .esde_handler import FSEsdeHandler, get_fs_esde_handler
 from .launchbox_handler import FSLaunchboxHandler, get_fs_launchbox_handler
 from .platforms_handler import FSPlatformsHandler
 from .resources_handler import FSResourcesHandler
@@ -29,6 +30,7 @@ __all__ = [
     "fs_platform_handler",
     "fs_resource_handler",
     "fs_rom_handler",
+    "get_fs_esde_handler",
     "get_fs_launchbox_handler",
     "get_fs_sync_handler",
 ]

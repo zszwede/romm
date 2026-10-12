@@ -145,6 +145,7 @@ REFRESH_RETROACHIEVEMENTS_CACHE_DAYS: Final[int] = safe_int(
 
 # LAUNCHBOX
 LAUNCHBOX_BASE_PATH: Final[str] = f"{ROMM_BASE_PATH}/launchbox"
+ESDE_BASE_PATH: Final[str] = _get_env("ESDE_BASE_PATH", "")
 LAUNCHBOX_API_ENABLED: Final[bool] = safe_str_to_bool(_get_env("LAUNCHBOX_API_ENABLED"))
 
 # PLAYMATCH

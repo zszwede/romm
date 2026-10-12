@@ -9,6 +9,7 @@ from defusedxml import ElementTree as ET
 
 from config.config_manager import MetadataMediaType
 from handler.filesystem import fs_platform_handler
+from handler.filesystem.base_handler import FSHandler
 from handler.metadata.gamelist_handler import (
     ESDE_MEDIA_MAP,
     GamelistHandler,
@@ -367,6 +368,54 @@ def test_build_media_file_index_maps_stems_to_uris(tmp_path: Path, platform: Pla
     assert index["box2d_url"] == {"Game": f"file://{platform_dir}/covers/Game.png"}
     assert index["video_url"] == {"Game": f"file://{platform_dir}/videos/Game.mp4"}
     assert index["manual_url"] == {}
+
+
+def test_build_media_file_index_falls_back_to_esde_folder(
+    tmp_path: Path, platform: Platform
+):
+    library = tmp_path / "library"
+    _write_media(library, platform, "covers", "Game.png")
+    esde = tmp_path / "esde"
+    for folder, name in (("covers", "Ignored.png"), ("videos", "Game.mp4")):
+        media_dir = esde / "downloaded_media" / platform.fs_slug / folder
+        media_dir.mkdir(parents=True)
+        (media_dir / name).touch()
+    platform_dir = _platform_dir(platform)
+
+    with (
+        patch.object(fs_platform_handler, "base_path", library),
+        patch(
+            "handler.metadata.gamelist_handler.get_fs_esde_handler",
+            return_value=FSHandler(base_path=str(esde)),
+        ),
+    ):
+        index = build_media_file_index(platform)
+
+    assert index["box2d_url"] == {"Game": f"file://{platform_dir}/covers/Game.png"}
+    assert index["video_url"] == {
+        "Game": f"esde-file://downloaded_media/{platform.fs_slug}/videos/Game.mp4"
+    }
+
+
+async def test_find_gamelist_file_falls_back_to_esde_folder(
+    tmp_path: Path, platform: Platform
+):
+    library = tmp_path / "library"
+    (library / _platform_dir(platform)).mkdir(parents=True)
+    gamelist_path = tmp_path / "esde" / "gamelists" / platform.fs_slug / "gamelist.xml"
+    gamelist_path.parent.mkdir(parents=True)
+    gamelist_path.write_text("<gameList/>", encoding="utf-8")
+
+    with (
+        patch.object(fs_platform_handler, "base_path", library),
+        patch(
+            "handler.metadata.gamelist_handler.get_fs_esde_handler",
+            return_value=FSHandler(base_path=str(tmp_path / "esde")),
+        ),
+    ):
+        found = await GamelistHandler()._find_gamelist_file(platform)
+
+    assert found == gamelist_path
 
 
 def test_build_media_file_index_follows_esde_extension_order(

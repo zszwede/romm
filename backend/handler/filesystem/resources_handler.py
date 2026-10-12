@@ -32,7 +32,7 @@ from utils.rate_limiter import ConcurrencyLimiter
 
 from .base_handler import CoverSize, FSHandler
 
-LOCAL_FILE_SCHEMES = ("file://", "launchbox-file://")
+LOCAL_FILE_SCHEMES = ("file://", "launchbox-file://", "esde-file://")
 
 ALLOWED_MANUAL_EXTENSIONS = frozenset({".pdf", ".md", ".txt"})
 
@@ -48,8 +48,22 @@ def _resolve_local_file_uri(uri: str) -> Path | None:
     `file://` resolves under the ROM library root. `launchbox-file://` resolves
     under the LaunchBox data root, since LaunchBox metadata produces paths
     relative to `/romm/launchbox`, which is not the same as the library root.
+    `esde-file://` resolves under the ES-DE data folder.
     """
-    from handler.filesystem import fs_rom_handler, get_fs_launchbox_handler
+    from handler.filesystem import (
+        fs_rom_handler,
+        get_fs_esde_handler,
+        get_fs_launchbox_handler,
+    )
+
+    if uri.startswith("esde-file://"):
+        esde_handler = get_fs_esde_handler()
+        if esde_handler is None:
+            return None
+        try:
+            return esde_handler.validate_path(uri[len("esde-file://") :])
+        except ValueError:
+            return None
 
     if uri.startswith("launchbox-file://"):
         try:

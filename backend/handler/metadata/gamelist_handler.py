@@ -11,11 +11,17 @@ from defusedxml import ElementTree as ET
 
 from config.config_manager import PLATFORM_MEDIA_DIRS, MetadataMediaType
 from config.config_manager import config_manager as cm
-from handler.filesystem import fs_platform_handler, fs_resource_handler
+from handler.filesystem import (
+    fs_platform_handler,
+    fs_resource_handler,
+    get_fs_esde_handler,
+)
 from handler.filesystem.base_handler import (
+    FSHandler,
     normalize_provider_languages,
     normalize_provider_regions,
 )
+from handler.filesystem.esde_handler import ESDE_GAMELISTS_DIR, ESDE_MEDIA_DIR
 from logger.logger import log
 from models.platform import Platform
 from models.rom import Rom, compute_name_sort_key
@@ -221,6 +227,28 @@ def _esde_media_rank(file_name: str) -> tuple[int, str]:
     )
 
 
+def _index_media_folder(
+    handler: FSHandler, folder: str, scheme: str
+) -> dict[str, str]:
+    """Map each file stem in a media folder to its URI, in ES-DE extension order."""
+    # Media is only a fallback, so an unusable folder must not fail the parse
+    try:
+        full_path = handler.validate_path(folder)
+        uri_prefix = f"{scheme}{full_path.relative_to(handler.base_path)}"
+        with os.scandir(full_path) as it:
+            file_names = sorted(
+                (entry.name for entry in it if entry.is_file()),
+                key=_esde_media_rank,
+            )
+    except OSError, ValueError:
+        return {}
+
+    stems: dict[str, str] = {}
+    for file_name in file_names:
+        stems.setdefault(os.path.splitext(file_name)[0], f"{uri_prefix}/{file_name}")
+    return stems
+
+
 def build_media_file_index(platform: Platform) -> MediaFileIndex:
     """Index each ES-DE media folder's files by stem, listing each folder once.
 
@@ -228,27 +256,18 @@ def build_media_file_index(platform: Platform) -> MediaFileIndex:
         The stem-to-URI mapping for every ESDE_MEDIA_MAP key.
     """
     platform_dir = fs_platform_handler.get_platform_fs_structure(platform.fs_slug)
+    esde_handler = get_fs_esde_handler()
     index: MediaFileIndex = {}
 
     for media_key, folder_name in ESDE_MEDIA_MAP.items():
-        # Media is only a fallback, so an unusable folder must not fail the parse
-        try:
-            folder = fs_platform_handler.validate_path(
-                os.path.join(platform_dir, folder_name)
-            )
-            uri_prefix = f"file://{folder.relative_to(fs_platform_handler.base_path)}"
-            with os.scandir(folder) as it:
-                file_names = sorted(
-                    (entry.name for entry in it if entry.is_file()),
-                    key=_esde_media_rank,
-                )
-        except OSError, ValueError:
-            file_names = []
-
-        stems: dict[str, str] = {}
-        for file_name in file_names:
-            stems.setdefault(
-                os.path.splitext(file_name)[0], f"{uri_prefix}/{file_name}"
+        stems = _index_media_folder(
+            fs_platform_handler, os.path.join(platform_dir, folder_name), "file://"
+        )
+        if not stems and esde_handler:
+            stems = _index_media_folder(
+                esde_handler,
+                os.path.join(ESDE_MEDIA_DIR, platform.fs_slug, folder_name),
+                "esde-file://",
             )
         index[media_key] = stems
 
@@ -537,6 +556,12 @@ class GamelistHandler(MetadataHandler):
         platform_gamelist = f"{platform_dir}/gamelist.xml"
         if await fs_platform_handler.file_exists(platform_gamelist):
             return fs_platform_handler.validate_path(platform_gamelist)
+
+        esde_handler = get_fs_esde_handler()
+        if esde_handler:
+            esde_gamelist = f"{ESDE_GAMELISTS_DIR}/{platform.fs_slug}/gamelist.xml"
+            if await esde_handler.file_exists(esde_gamelist):
+                return esde_handler.validate_path(esde_gamelist)
 
         return None
 
