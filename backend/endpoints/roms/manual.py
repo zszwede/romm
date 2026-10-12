@@ -22,6 +22,7 @@ from logger.formatter import BLUE
 from logger.formatter import highlight as hl
 from logger.logger import log
 from models.rom import RomFileCategory
+from utils.filesystem import unlink_symlink
 from utils.router import APIRouter
 
 router = APIRouter()
@@ -83,6 +84,8 @@ async def add_rom_manuals(
     log.info(f"Uploading manual to {hl(str(file_location))}")
 
     await fs_resource_handler.make_directory(manuals_path)
+    # The upload is written in place, which would land on a linked manual's target
+    unlink_symlink(file_location)
 
     parser = StreamingFormDataParser(headers=request.headers)
     parser.register("x-upload-platform", NullTarget())
@@ -117,6 +120,12 @@ async def add_rom_manuals(
         )
         if stale.exists():
             stale.unlink()
+
+    # ES-DE only shows PDF manuals
+    if ext == ".pdf":
+        await fs_resource_handler.move_to_esde(
+            rom, f"{manuals_path}/{rom.id}{ext}", "manual"
+        )
 
     # An uploaded manual and a scraped one share this path, so only the lock
     # tells them apart.

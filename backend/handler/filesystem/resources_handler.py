@@ -12,8 +12,12 @@ from fastapi import status
 from PIL import Image, ImageFile, UnidentifiedImageError
 
 from adapters.services.screenscraper import media_download_slot
-from config import ENABLE_SCHEDULED_CONVERT_IMAGES_TO_WEBP, RESOURCES_BASE_PATH
-from config.config_manager import MetadataMediaType
+from config import (
+    ENABLE_SCHEDULED_CONVERT_IMAGES_TO_WEBP,
+    ESDE_WRITE_MEDIA,
+    RESOURCES_BASE_PATH,
+)
+from config.config_manager import PLATFORM_MEDIA_DIRS, MetadataMediaType
 from logger.logger import log
 from models.collection import Collection
 from models.rom import Rom
@@ -293,6 +297,34 @@ class FSResourcesHandler(FSHandler):
         except OSError as exc:
             log.error(f"Unable to remove partial file {relative_path}: {str(exc)}")
 
+    async def move_to_esde(
+        self, entity: Rom | Collection, relative_path: str, media_type: str
+    ) -> None:
+        """Hand a downloaded or uploaded file to ES-DE's media folder.
+
+        Args:
+            media_type: A PLATFORM_MEDIA_DIRS key.
+        """
+        from handler.filesystem import get_fs_esde_handler
+
+        esde_handler = get_fs_esde_handler()
+        if not ESDE_WRITE_MEDIA or esde_handler is None or not isinstance(entity, Rom):
+            return
+
+        try:
+            target = await asyncio.to_thread(
+                esde_handler.adopt_media,
+                entity,
+                self.validate_path(relative_path),
+                PLATFORM_MEDIA_DIRS[media_type],
+            )
+        except (OSError, ValueError) as exc:
+            # The file is still served from resources
+            log.error(f"Unable to move {relative_path} to ES-DE: {str(exc)}")
+            return
+        if target:
+            log.debug(f"Moved {relative_path} to {target}")
+
     async def _store_cover(self, entity: Rom | Collection, url_cover: str) -> None:
         """Fetch a cover once and write both sizes.
 
@@ -380,6 +412,7 @@ class FSResourcesHandler(FSHandler):
                 self.validate_path(big_path),
                 self.validate_path(small_path),
             )
+            await self.move_to_esde(entity, big_path, "box2d")
         except UnidentifiedImageError as exc:
             # Undecodable bytes still satisfy cover_exists(), so keeping them
             # would stop every later scan from refetching a working cover.
@@ -507,6 +540,9 @@ class FSResourcesHandler(FSHandler):
             await asyncio.to_thread(
                 self._write_derived_covers, path_cover_l, path_cover_s
             )
+            await self.move_to_esde(
+                entity, str(path_cover_l.relative_to(self.base_path)), "box2d"
+            )
         except UnidentifiedImageError as exc:
             log.error(
                 f"Unable to identify image for {entity.fs_resources_path}: {str(exc)}"
@@ -591,6 +627,11 @@ class FSResourcesHandler(FSHandler):
                                 async for chunk in response.aiter_raw():
                                     await f.write(chunk)
 
+                        # ES-DE holds one screenshot per game
+                        if idx == 0:
+                            await self.move_to_esde(
+                                rom, f"{screenshot_path}/{idx}.jpg", "screenshot"
+                            )
                         return True
             except httpx2.TransportError as exc:
                 log.error(f"Unable to fetch screenshot at {url_screenhot}: {str(exc)}")
@@ -728,6 +769,10 @@ class FSResourcesHandler(FSHandler):
                                 # Content is not gzipped, stream directly
                                 async for chunk in response.aiter_raw():
                                     await f.write(chunk)
+
+                        await self.move_to_esde(
+                            rom, f"{manual_path}/{rom.id}.pdf", "manual"
+                        )
             except httpx2.TransportError as exc:
                 log.error(f"Unable to fetch manual at {url_manual}: {str(exc)}")
                 return None
