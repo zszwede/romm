@@ -7,6 +7,7 @@ from .resources_handler import FSResourcesHandler
 from .retroarch_sync_handler import FSRetroArchSyncHandler
 from .roms_handler import FSRomsHandler
 from .sync_handler import FSSyncHandler, get_fs_sync_handler
+from .virtual_handler import FSVirtualHandler, fs_virtual_handler
 
 fs_asset_handler = FSAssetsHandler()
 fs_retroarch_sync_handler = FSRetroArchSyncHandler()
@@ -24,12 +25,14 @@ __all__ = [
     "FSResourcesHandler",
     "FSRomsHandler",
     "FSSyncHandler",
+    "FSVirtualHandler",
     "fs_asset_handler",
     "fs_retroarch_sync_handler",
     "fs_firmware_handler",
     "fs_platform_handler",
     "fs_resource_handler",
     "fs_rom_handler",
+    "fs_virtual_handler",
     "get_fs_esde_handler",
     "get_fs_launchbox_handler",
     "get_fs_sync_handler",

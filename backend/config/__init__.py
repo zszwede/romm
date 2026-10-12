@@ -46,6 +46,13 @@ DEV_SQL_ECHO: Final[bool] = safe_str_to_bool(_get_env("DEV_SQL_ECHO"))
 ROMM_BASE_PATH: Final[str] = _get_env("ROMM_BASE_PATH", "/romm")
 ROMM_TMP_PATH: Final[str | None] = _get_env("ROMM_TMP_PATH")
 LIBRARY_BASE_PATH: Final[str] = f"{ROMM_BASE_PATH}/library"
+# Writable root for virtual-ROM assignment (folder creation) and downloads. The
+# normal library is often read-only (e.g. an ES-DE overlay), so a deployment
+# points this at a writable mount of the real roms/media/gamelists tree. Falls
+# back to the library when unset, which suits a writable library.
+VIRTUAL_DOWNLOAD_BASE_PATH: Final[str] = (
+    _get_env("VIRTUAL_DOWNLOAD_BASE_PATH") or LIBRARY_BASE_PATH
+)
 RESOURCES_BASE_PATH: Final[str] = f"{ROMM_BASE_PATH}/resources"
 ASSETS_BASE_PATH: Final[str] = f"{ROMM_BASE_PATH}/assets"
 CACHE_BASE_PATH: Final[str] = (

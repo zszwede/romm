@@ -62,6 +62,7 @@ from endpoints.streaming import router as streaming_router
 from endpoints.sync import router as sync_router
 from endpoints.tasks import router as tasks_router
 from endpoints.user import router as user_router
+from endpoints.virtual import router as virtual_router
 from handler.activity_handler import activity_handler
 from handler.auth.constants import SESSION_COOKIE_NAME
 from handler.auth.hybrid_auth import HybridAuthBackend
@@ -198,6 +199,7 @@ app.include_router(device_auth_router, prefix="/api")
 app.include_router(play_sessions_router, prefix="/api")
 app.include_router(platform_router, prefix="/api")
 app.include_router(rom_router, prefix="/api")
+app.include_router(virtual_router, prefix="/api")
 app.include_router(recommendations_router, prefix="/api")
 app.include_router(music_router, prefix="/api")
 app.include_router(music_playlists_router, prefix="/api")

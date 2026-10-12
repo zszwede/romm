@@ -209,11 +209,23 @@ def scene_apply_sources(
 # Sentinel folder for manually-added physical games; it never exists on disk.
 PHYSICAL_FS_SUBDIR = ".physical"
 
+# Sentinel folder for not-yet-downloaded virtual games; it never exists on disk.
+# Keeps them out of the real ROM folder (so the scanner never flags them) until
+# a download moves the row to the real platform path.
+VIRTUAL_FS_SUBDIR = ".virtual"
+
 
 def build_physical_fs_path(platform: Platform) -> str:
     """Sentinel `fs_path` for a file-less physical game on the given platform."""
     return (
         f"{fs_rom_handler.get_roms_fs_structure(platform.fs_slug)}/{PHYSICAL_FS_SUBDIR}"
+    )
+
+
+def build_virtual_fs_path(platform: Platform) -> str:
+    """Sentinel `fs_path` for a file-less virtual game on the given platform."""
+    return (
+        f"{fs_rom_handler.get_roms_fs_structure(platform.fs_slug)}/{VIRTUAL_FS_SUBDIR}"
     )
 
 
