@@ -16,9 +16,55 @@ from utils.filesystem import (
     place_export_asset,
     rel_platform_folder,
     sanitize_filename,
+    symlink_file,
+    unlink_symlink,
 )
 
 INVALID_AFTER_SANITIZE = set('\\/:|*?"<>') | {chr(c) for c in (*range(0x20), 0x7F)}
+
+
+class TestSymlinkFile:
+    def test_links_to_the_resolved_source(self, tmp_path):
+        real_dir = tmp_path / "real"
+        real_dir.mkdir()
+        (real_dir / "source.bin").write_bytes(b"payload")
+        (tmp_path / "alias").symlink_to(real_dir)
+        dest = tmp_path / "dest.bin"
+
+        symlink_file(tmp_path / "alias" / "source.bin", dest)
+
+        assert dest.is_symlink()
+        assert os.readlink(dest) == str(real_dir / "source.bin")
+
+    def test_replaces_an_existing_file(self, tmp_path):
+        source = tmp_path / "source.bin"
+        source.write_bytes(b"new")
+        dest = tmp_path / "dest.bin"
+        dest.write_bytes(b"old")
+
+        symlink_file(source, dest)
+
+        assert dest.read_bytes() == b"new"
+        assert [p.name for p in tmp_path.iterdir() if "tmp" in p.name] == []
+
+    def test_unlink_symlink_keeps_the_target(self, tmp_path):
+        source = tmp_path / "source.bin"
+        source.write_bytes(b"payload")
+        dest = tmp_path / "dest.bin"
+        symlink_file(source, dest)
+
+        unlink_symlink(dest)
+        dest.write_bytes(b"other")
+
+        assert source.read_bytes() == b"payload"
+
+    def test_unlink_symlink_leaves_a_regular_file(self, tmp_path):
+        dest = tmp_path / "dest.bin"
+        dest.write_bytes(b"payload")
+
+        unlink_symlink(dest)
+
+        assert dest.read_bytes() == b"payload"
 
 
 class TestLinkOrCopyFile:

@@ -275,6 +275,9 @@ OIDC_END_SESSION_ENDPOINT: Final[str] = _get_env("OIDC_END_SESSION_ENDPOINT", ""
 # SCANS
 SCAN_TIMEOUT: Final[int] = safe_int(_get_env("SCAN_TIMEOUT"), 60 * 60 * 4)  # 4 hours
 SCAN_WORKERS: Final[int] = max(1, safe_int(_get_env("SCAN_WORKERS"), 4))
+SCAN_SYMLINK_LOCAL_MEDIA: Final[bool] = safe_str_to_bool(
+    _get_env("SCAN_SYMLINK_LOCAL_MEDIA")
+)
 
 # TASKS
 TASK_TIMEOUT: Final[int] = safe_int(_get_env("TASK_TIMEOUT"), 60 * 5)  # 5 minutes

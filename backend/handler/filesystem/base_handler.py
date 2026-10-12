@@ -18,6 +18,7 @@ from anyio import Path as AnyioPath
 from anyio import open_file
 from starlette.datastructures import UploadFile
 
+from config import SCAN_SYMLINK_LOCAL_MEDIA
 from config.config_manager import config_manager as cm
 from models.base import (
     compute_file_extension,
@@ -32,6 +33,8 @@ from utils.filesystem import (
     iter_directories,
     iter_files,
     link_or_copy_file,
+    symlink_file,
+    unlink_symlink,
 )
 
 UUID_V4_REGEX = re.compile(
@@ -777,6 +780,7 @@ class FSHandler:
         source_full_path: Path,
         dest_path: str,
         allow_link: bool = False,
+        allow_symlink: bool = False,
     ) -> None:
         """
         Copy a file from source to destination.
@@ -787,6 +791,7 @@ class FSHandler:
             allow_link: Try a hardlink first and fall back to
             a copy when the link isn't possible (cross-device,
             unsupported filesystem, etc.)
+            allow_symlink: Symlink instead when SCAN_SYMLINK_LOCAL_MEDIA is set
 
         Raises:
             FileNotFoundError: If source file does not exist
@@ -811,9 +816,12 @@ class FSHandler:
             # Create destination directory if needed
             dest_parent_anyio_path = AnyioPath(str(dest_full_path.parent))
             await dest_parent_anyio_path.mkdir(parents=True, exist_ok=True)
-            if allow_link:
+            if allow_symlink and SCAN_SYMLINK_LOCAL_MEDIA:
+                symlink_file(source_full_path, dest_full_path)
+            elif allow_link:
                 link_or_copy_file(source_full_path, dest_full_path)
             else:
+                unlink_symlink(dest_full_path)
                 shutil.copy2(str(source_full_path), str(dest_full_path))
 
     async def move_file_or_folder(self, source_path: str, dest_path: str) -> None:

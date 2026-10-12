@@ -763,6 +763,45 @@ class TestFSHandler:
         assert dest_full.read_bytes() == sample_file_content
         assert source_full.stat().st_ino != dest_full.stat().st_ino
 
+    async def test_copy_file_allow_symlink_needs_the_setting(
+        self, handler: FSHandler, sample_file_content
+    ):
+        source_full = handler.base_path / "source.bin"
+        source_full.write_bytes(sample_file_content)
+
+        await handler.copy_file(source_full, "dest.bin", allow_symlink=True)
+
+        assert not (handler.base_path / "dest.bin").is_symlink()
+
+    async def test_copy_file_allow_symlink_links_when_set(
+        self, handler: FSHandler, sample_file_content
+    ):
+        source_full = handler.base_path / "source.bin"
+        source_full.write_bytes(sample_file_content)
+
+        with patch("handler.filesystem.base_handler.SCAN_SYMLINK_LOCAL_MEDIA", True):
+            await handler.copy_file(
+                source_full, "dest.bin", allow_link=True, allow_symlink=True
+            )
+
+        dest_full = handler.base_path / "dest.bin"
+        assert dest_full.is_symlink()
+        assert dest_full.read_bytes() == sample_file_content
+
+    async def test_copy_file_over_a_symlink_keeps_its_target(
+        self, handler: FSHandler, sample_file_content
+    ):
+        linked_full = handler.base_path / "linked.bin"
+        linked_full.write_bytes(b"linked")
+        (handler.base_path / "dest.bin").symlink_to(linked_full)
+        source_full = handler.base_path / "source.bin"
+        source_full.write_bytes(sample_file_content)
+
+        await handler.copy_file(source_full, "dest.bin")
+
+        assert linked_full.read_bytes() == b"linked"
+        assert (handler.base_path / "dest.bin").read_bytes() == sample_file_content
+
     async def test_copy_file_nonexistent_source(self, handler: FSHandler):
         """Missing source must raise FileNotFoundError regardless of link mode."""
         with pytest.raises(FileNotFoundError, match="Source file not found"):

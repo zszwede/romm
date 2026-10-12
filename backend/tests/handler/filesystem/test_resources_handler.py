@@ -2212,9 +2212,9 @@ class TestCoverSingleFetch:
         copied_to: list[str] = []
         original_copy = handler.copy_file
 
-        async def counting_copy(src, dest, allow_link=False):
+        async def counting_copy(src, dest, **kwargs):
             copied_to.append(dest)
-            await original_copy(src, dest, allow_link=allow_link)
+            await original_copy(src, dest, **kwargs)
 
         with (
             patch(

@@ -118,6 +118,29 @@ def link_or_copy_file(source: Path, dest: Path) -> None:
         raise
 
 
+def symlink_file(source: Path, dest: Path) -> None:
+    """Point ``dest`` at ``source`` with a symlink, atomically replacing ``dest``.
+
+    The link targets the resolved file, so it survives a relinked parent folder.
+    """
+    tmp_path = dest.parent / f".romm_link_tmp_{os.urandom(8).hex()}"
+    try:
+        os.symlink(source.resolve(), tmp_path)
+        os.replace(tmp_path, dest)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def unlink_symlink(path: Path) -> None:
+    """Drop ``path`` if it is a symlink, so a write lands here and not on its target."""
+    if path.is_symlink():
+        path.unlink()
+
+
 def place_export_asset(source: Path, dest: Path) -> bool:
     """Link or copy an exported asset to ``dest``, keeping one already there.
 

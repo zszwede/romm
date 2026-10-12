@@ -20,6 +20,7 @@ from models.rom import Rom
 from tasks.scheduled.convert_images_to_webp import ImageConverter
 from utils.concurrency import gather_all
 from utils.context import ctx_httpx_client
+from utils.filesystem import unlink_symlink
 from utils.images import (
     IMAGE_DECODE_ERRORS,
     MAX_TRIM_PIXELS,
@@ -298,8 +299,11 @@ class FSResourcesHandler(FSHandler):
                     log.warning(f"Cover file not found: {url_cover}")
                     return None
                 # Covers are rewritten in place by later scans, which would
-                # mutate the user's source image through a hardlink.
-                await self.copy_file(resolved, big_path, allow_link=False)
+                # mutate the user's source image through a hardlink. A symlink
+                # is safe: writers replace it or drop it first.
+                await self.copy_file(
+                    resolved, big_path, allow_link=False, allow_symlink=True
+                )
             except Exception as exc:
                 log.error(f"Unable to copy cover file {url_cover}: {str(exc)}")
                 await self._discard_partial_file(big_path)
@@ -484,6 +488,7 @@ class FSResourcesHandler(FSHandler):
                         filename=path_cover_l.name,
                     )
                 else:
+                    unlink_symlink(path_cover_l)
                     img.save(path_cover_l)
             await asyncio.to_thread(
                 self._write_derived_covers, path_cover_l, path_cover_s
@@ -526,7 +531,10 @@ class FSResourcesHandler(FSHandler):
                     log.warning(f"Screenshot file not found: {url_screenhot}")
                     return False
                 await self.copy_file(
-                    resolved, f"{screenshot_path}/{idx}.jpg", allow_link=True
+                    resolved,
+                    f"{screenshot_path}/{idx}.jpg",
+                    allow_link=True,
+                    allow_symlink=True,
                 )
                 return True
             except Exception as exc:
@@ -656,7 +664,10 @@ class FSResourcesHandler(FSHandler):
                     log.warning(f"Manual file not found: {url_manual}")
                     return None
                 await self.copy_file(
-                    resolved, f"{manual_path}/{rom.id}.pdf", allow_link=True
+                    resolved,
+                    f"{manual_path}/{rom.id}.pdf",
+                    allow_link=True,
+                    allow_symlink=True,
                 )
             except Exception as exc:
                 log.error(f"Unable to copy manual file {url_manual}: {str(exc)}")
@@ -827,7 +838,9 @@ class FSResourcesHandler(FSHandler):
                 try:
                     resolved = _resolve_local_file_uri(url_media)
                     if resolved is not None and await AnyioPath(resolved).exists():
-                        await self.copy_file(resolved, dest_path, allow_link=True)
+                        await self.copy_file(
+                            resolved, dest_path, allow_link=True, allow_symlink=True
+                        )
                 except Exception as exc:
                     log.error(f"Unable to copy media file {url_media}: {str(exc)}")
                     await self._discard_partial_file(dest_path)
