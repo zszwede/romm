@@ -19,7 +19,10 @@ from handler.database import (
     db_virtual_source_handler,
 )
 from handler.filesystem import fs_rom_handler, fs_virtual_handler
-from handler.filesystem.base_handler import normalize_region
+from handler.filesystem.base_handler import (
+    REGION_NAME_TO_PROVIDER_SHORTCODE,
+    normalize_region,
+)
 from handler.scan_handler import (
     MetadataSource,
     ScanType,
@@ -38,8 +41,33 @@ from utils.filesystem import sanitize_filename
 
 from .archive_org import VirtualGame, list_games
 
-# Aliases the region allow-list accepts beyond the canonical REGIONS names.
-_REGION_ALIASES = {"us": "USA", "eu": "Europe", "usa": "USA", "europe": "Europe"}
+# Region spellings the allow-list accepts beyond what `normalize_region` knows
+# (canonical names + single-letter filename shortcodes like E/U/J). Covers the
+# provider two-letter codes (eu, us, jp, ...) and common casual forms, so a user
+# can type EU, EUR, Europe, E; US, USA, U; JP, JPN, Japan; and so on.
+_PROVIDER_CODE_TO_REGION = {
+    code.lower(): name for name, code in REGION_NAME_TO_PROVIDER_SHORTCODE.items()
+}
+_EXTRA_REGION_ALIASES = {
+    "eur": "Europe",
+    "jpn": "Japan",
+    "ger": "Germany",
+    "fra": "France",
+    "spa": "Spain",
+    "ita": "Italy",
+    "aus": "Australia",
+    "america": "USA",
+    "americas": "Americas",
+}
+
+
+def _resolve_region(value: str) -> str | None:
+    key = value.strip().lower()
+    return (
+        normalize_region(value)
+        or _PROVIDER_CODE_TO_REGION.get(key)
+        or _EXTRA_REGION_ALIASES.get(key)
+    )
 
 # A download is read and hashed in chunks of this size.
 _DOWNLOAD_CHUNK = 1024 * 1024
@@ -48,15 +76,16 @@ _DOWNLOAD_CHUNK = 1024 * 1024
 def _normalized_allow(region_filter: list | None) -> set[str]:
     allow: set[str] = set()
     for raw in region_filter or []:
-        value = str(raw).strip()
-        canonical = _REGION_ALIASES.get(value.lower()) or normalize_region(value)
+        canonical = _resolve_region(str(raw))
         if canonical:
             allow.add(canonical)
     return allow
 
 
 def _region_ok(regions: list[str], allow: set[str]) -> bool:
-    # Keep unknown-region games; only drop ones whose region is known and excluded.
+    # With no filter, keep everything. With a filter, keep a game when it carries
+    # an allowed region OR has no region tag at all (an untagged ROM is accepted,
+    # never silently dropped); only drop games whose region is known and excluded.
     return not allow or not regions or bool(set(regions) & allow)
 
 
