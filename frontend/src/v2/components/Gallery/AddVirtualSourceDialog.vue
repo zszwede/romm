@@ -2,16 +2,22 @@
 // AddVirtualSourceDialog: assign one or more archive.org index URLs to a
 // platform. The backend lists the games at each URL and adds them as
 // file-less "virtual" ROMs (is_virtual=true) carrying metadata, downloadable
-// on demand. Targets the current platform by default; a typed slug instead
-// creates/targets a platform by slug (so a not-yet-existing system like
-// "apple2" can be seeded from here). v2 sibling of the ScanPlatformDialog.
+// on demand.
+//
+// Target platform is chosen from the full supported-platforms catalog via the
+// shared PlatformSelect (same searchable dropdown as Library Management's
+// "RomM platform" column), defaulting to the platform the dialog opened from.
+// Picking a catalog platform that isn't in the library yet (e.g. Apple II)
+// creates it — so a not-yet-existing system can be seeded from here without
+// typing a slug. v2 sibling of ScanPlatformDialog.
 import { RBtn, RDialog, RSelect, RSwitch, RTextField } from "@v2/lib";
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import platformApi from "@/services/api/platform";
 import virtualSourceApi from "@/services/api/virtualSource";
-import type { Platform } from "@/stores/platforms";
+import storePlatforms, { type Platform } from "@/stores/platforms";
 import { useSnackbar } from "@/v2/composables/useSnackbar";
-import PlatformIcon from "@/v2/components/shared/PlatformIcon.vue";
+import PlatformSelect from "@/v2/components/shared/PlatformSelect.vue";
 
 defineOptions({ inheritAttrs: false });
 
@@ -29,14 +35,26 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const snackbar = useSnackbar();
+const platformsStore = storePlatforms();
 
 const REGION_OPTIONS = ["USA", "Europe", "Japan", "World"];
 
-const newSlug = ref("");
+// The full catalog of RomM-supported platforms (hundreds of entries) — the
+// same list the folder-mapping "RomM platform" cell offers.
+const supportedPlatforms = ref<Platform[]>([]);
+const loadingPlatforms = ref(false);
+
+const targetSlug = ref<string | null>(null);
 const urlsText = ref("");
 const regionFilter = ref<string[]>([]);
 const syncNow = ref(true);
 const submitting = ref(false);
+
+const sortedPlatforms = computed(() =>
+  [...supportedPlatforms.value].sort((a, b) =>
+    a.display_name.localeCompare(b.display_name),
+  ),
+);
 
 const urls = computed(() =>
   urlsText.value
@@ -45,20 +63,37 @@ const urls = computed(() =>
     .filter((u) => u.length > 0),
 );
 
-const canSubmit = computed(() => urls.value.length > 0 && !submitting.value);
+const canSubmit = computed(
+  () => urls.value.length > 0 && !!targetSlug.value && !submitting.value,
+);
 
-// Reset the form each time the dialog opens so a previous run's URLs don't
-// linger.
+async function ensureSupportedPlatforms() {
+  if (supportedPlatforms.value.length || loadingPlatforms.value) return;
+  loadingPlatforms.value = true;
+  try {
+    const { data } = await platformApi.getSupportedPlatforms();
+    supportedPlatforms.value = data ?? [];
+  } catch {
+    // Fall back to just the known/library platforms so the picker still works.
+    supportedPlatforms.value = platformsStore.allPlatforms as Platform[];
+  } finally {
+    loadingPlatforms.value = false;
+  }
+}
+
+// Reset the form and default to the current platform each time it opens.
 watch(
   () => props.modelValue,
   (open) => {
     if (open) {
-      newSlug.value = "";
+      targetSlug.value = props.platform.slug;
       urlsText.value = "";
       regionFilter.value = [];
       syncNow.value = true;
+      void ensureSupportedPlatforms();
     }
   },
+  { immediate: true },
 );
 
 function closeDialog() {
@@ -67,22 +102,25 @@ function closeDialog() {
 
 async function submit() {
   if (!canSubmit.value) return;
+  const slug = targetSlug.value;
+  if (!slug) return;
   submitting.value = true;
-  const slug = newSlug.value.trim();
+  // If the chosen platform already exists in the library, target it by id;
+  // otherwise pass its slug so the backend creates it (folders + record).
+  const existing = platformsStore.allPlatforms.find(
+    (p) => p.slug === slug || p.fs_slug === slug,
+  );
   try {
     const { data } = await virtualSourceApi.assignSources({
       urls: urls.value,
-      // A typed slug always creates/targets by slug; otherwise this platform.
-      platformId: slug ? undefined : props.platform.id,
-      fsSlug: slug || undefined,
+      platformId: existing ? existing.id : undefined,
+      fsSlug: existing ? undefined : slug,
       regionFilter: regionFilter.value.length ? regionFilter.value : undefined,
       sync: syncNow.value,
     });
     snackbar.success(
       syncNow.value
-        ? t("platform.virtual-sources-added-syncing", {
-            n: data.length,
-          })
+        ? t("platform.virtual-sources-added-syncing", { n: data.length })
         : t("platform.virtual-sources-added", { n: data.length }),
       { icon: "mdi-check-bold" },
     );
@@ -124,30 +162,23 @@ async function submit() {
 
     <template #content>
       <div class="r-v2-add-vsrc">
-        <!-- Platform identity row: sibling of the ScanPlatformDialog head. -->
-        <div class="r-v2-add-vsrc__head">
-          <div class="r-v2-add-vsrc__icon">
-            <PlatformIcon
-              :slug="platform.slug"
-              :fs-slug="platform.fs_slug"
-              :alt="platform.display_name"
-              :size="40"
-            />
-          </div>
-          <div class="r-v2-add-vsrc__meta">
-            <p class="r-v2-add-vsrc__label">{{ t("platform.assign-to") }}</p>
-            <p class="r-v2-add-vsrc__name" :title="platform.display_name">
-              {{ platform.display_name }}
-            </p>
-          </div>
+        <div class="r-v2-add-vsrc__field">
+          <label class="r-v2-add-vsrc__label">{{
+            t("platform.assign-to")
+          }}</label>
+          <PlatformSelect
+            v-model="targetSlug"
+            :items="sortedPlatforms"
+            item-key="slug"
+            searchable
+            :loading="loadingPlatforms"
+            :placeholder="t('common.select')"
+            :search-placeholder="t('common.search')"
+          />
+          <p class="r-v2-add-vsrc__hint">
+            {{ t("platform.virtual-target-hint") }}
+          </p>
         </div>
-
-        <RTextField
-          v-model="newSlug"
-          :label="t('platform.new-platform-slug')"
-          :hint="t('platform.new-platform-slug-hint')"
-          persistent-hint
-        />
 
         <RTextField
           v-model="urlsText"
@@ -192,41 +223,21 @@ async function submit() {
   flex-direction: column;
   gap: 16px;
 }
-
-.r-v2-add-vsrc__head {
+.r-v2-add-vsrc__field {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  background: var(--r-color-bg-elevated);
-  border: 1px solid var(--r-color-border);
-  border-radius: var(--r-radius-md);
-}
-.r-v2-add-vsrc__icon {
-  width: 40px;
-  height: 40px;
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-}
-.r-v2-add-vsrc__meta {
-  min-width: 0;
-  flex: 1;
+  flex-direction: column;
+  gap: 6px;
 }
 .r-v2-add-vsrc__label {
-  margin: 0;
   font-size: 11px;
+  font-weight: var(--r-font-weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--r-color-fg-muted);
 }
-.r-v2-add-vsrc__name {
-  margin: 2px 0 0;
-  font-size: 13px;
-  font-weight: var(--r-font-weight-semibold);
-  color: var(--r-color-fg);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.r-v2-add-vsrc__hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--r-color-fg-muted);
 }
 </style>

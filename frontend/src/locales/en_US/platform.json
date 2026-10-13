@@ -147,6 +147,7 @@
   "updated": "Platform updated",
   "upload-firmware": "Upload firmware",
   "upload-roms": "Upload ROMs",
+  "virtual-target-hint": "Defaults to this platform. Pick another — even one not in your library yet — to create and seed it.",
   "virtual-sources-added": "Added {n} source(s)",
   "virtual-sources-added-syncing": "Added {n} source(s); syncing virtual games in the background",
   "virtual-sources-failed": "Couldn't assign sources: {error}"
