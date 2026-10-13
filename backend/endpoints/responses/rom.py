@@ -635,6 +635,8 @@ class DetailedRomSchema(RomSchema):
     all_user_notes: list[UserNoteSchema]
     # What the caller can ask a `?format=` download of the rom's single file for.
     download_formats: list[str]
+    # Every place a virtual rom can be downloaded from (primary URL + mirrors).
+    source_urls: list[str]
 
     @classmethod
     def from_orm_with_request(cls, db_rom: Rom, request: Request) -> DetailedRomSchema:

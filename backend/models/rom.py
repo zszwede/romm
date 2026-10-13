@@ -195,6 +195,7 @@ if TYPE_CHECKING:
     from models.platform import Platform
     from models.recommendation import RomSimilarity
     from models.user import User
+    from models.virtual_rom_mirror import VirtualRomMirror
 
 
 class RomFileCategory(enum.StrEnum):
@@ -1050,6 +1051,11 @@ class Rom(BaseModel):
     # be flagged missing or cleaned up while still virtual.
     is_virtual: Mapped[bool] = mapped_column(default=False, nullable=False)
     source_url: Mapped[str | None] = mapped_column(String(length=1024), default=None)
+    # Extra download locations contributed by other sources listing the same
+    # game; the DB FK cascades on rom delete, so this is read-only here.
+    virtual_mirrors: Mapped[list[VirtualRomMirror]] = relationship(
+        "VirtualRomMirror", lazy="selectin", viewonly=True
+    )
 
     platform_id: Mapped[int] = mapped_column(
         ForeignKey("platforms.id", ondelete="CASCADE")
@@ -1262,6 +1268,16 @@ class Rom(BaseModel):
             and not self.is_virtual
             and not self.missing_from_fs
         )
+
+    @property
+    def source_urls(self) -> list[str]:
+        """Every place a virtual rom can be downloaded from: its primary URL plus
+        any mirrors other sources contributed, de-duplicated in order."""
+        urls: list[str] = []
+        for url in [self.source_url, *(m.url for m in self.virtual_mirrors)]:
+            if url and url not in urls:
+                urls.append(url)
+        return urls
 
     def has_m3u_file(self) -> bool:
         """

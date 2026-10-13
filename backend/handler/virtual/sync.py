@@ -90,13 +90,28 @@ def _region_ok(regions: list[str], allow: set[str]) -> bool:
 
 
 async def _create_virtual_rom(
-    platform: Platform, game: VirtualGame, allow: set[str], metadata_sources: list[str]
+    platform: Platform,
+    game: VirtualGame,
+    allow: set[str],
+    metadata_sources: list[str],
+    source_id: int | None,
 ) -> str:
-    """Create one virtual rom. Returns 'created', 'skipped' or 'failed'."""
+    """Add one game. Returns 'created', 'linked', 'skipped' or 'failed'.
+
+    A game another source already contributed becomes an extra download mirror on
+    the existing row ('linked'), never a duplicate entry.
+    """
     fs_name = sanitize_filename(game.name)
     parsed = fs_rom_handler.parse_tags(fs_name)
     if not _region_ok(parsed.regions, allow):
         return "skipped"
+
+    existing = db_virtual_source_handler.find_virtual_rom(platform.id, fs_name)
+    if existing is not None:
+        added = db_virtual_source_handler.add_mirror(
+            existing.id, game.source_url, source_id
+        )
+        return "linked" if added else "skipped"
 
     fs_path = build_virtual_fs_path(platform)
     try:
@@ -120,7 +135,14 @@ async def _create_virtual_rom(
             )
         )
     except IntegrityError:
-        # The unique (platform_id, full_path_hash) index already has this title.
+        # Lost a race (or a non-virtual rom owns the name): link a mirror if it is
+        # still a virtual row, else leave the existing download alone.
+        existing = db_virtual_source_handler.find_virtual_rom(platform.id, fs_name)
+        if existing is not None:
+            db_virtual_source_handler.add_mirror(
+                existing.id, game.source_url, source_id
+            )
+            return "linked"
         return "skipped"
 
     # Fetch metadata/media like a physical game, but keep the basic virtual row
@@ -159,17 +181,23 @@ async def sync_source(source: VirtualRomSource) -> str:
 
     allow = _normalized_allow(source.region_filter)
     metadata_sources = [s.value for s in MetadataSource]
-    counts = {"created": 0, "skipped": 0, "failed": 0}
+    counts = {"created": 0, "linked": 0, "skipped": 0, "failed": 0}
     for game in games:
         try:
-            counts[await _create_virtual_rom(platform, game, allow, metadata_sources)] += 1
+            outcome = await _create_virtual_rom(
+                platform, game, allow, metadata_sources, source.id
+            )
+            counts[outcome] += 1
         except Exception:
             log.exception("Failed to add virtual rom %s", game.name)
             counts["failed"] += 1
 
     if counts["created"]:
         db_rom_handler.invalidate_filter_values_cache()
-    result = f"{counts['created']} added, {counts['skipped']} already present"
+    result = (
+        f"{counts['created']} added, {counts['linked']} linked as mirror, "
+        f"{counts['skipped']} already present"
+    )
     if counts["failed"]:
         result += f", {counts['failed']} failed"
     return result
@@ -191,28 +219,24 @@ async def sync_platform_sources(platform_id: int) -> None:
             log.info("Virtual source %s: %s", source.url, result)
 
 
-async def materialize_rom(rom_id: int) -> None:
-    """Background entry point: download a virtual rom's file and make it normal."""
-    async with initialize_context():
-        rom = db_rom_handler.get_rom(rom_id)
-        if rom is None or not rom.is_virtual or not rom.source_url:
-            return
-        platform = db_platform_handler.get_platform(rom.platform_id)
-        if platform is None:
-            return
+async def _download_to(
+    dest: str, urls: list[str]
+) -> tuple[int, dict[str, str]] | None:
+    """Stream the first URL that works to `dest`, hashing as it goes.
 
-        dest = fs_virtual_handler.rom_write_path(platform.fs_slug, rom.fs_name)
-        await fs_virtual_handler.ensure_platform_dirs(platform.fs_slug)
-
-        tmp = f"{dest}.part"
+    Returns ``(size, {crc_hash, md5_hash, sha1_hash})`` on success, or None when
+    every URL failed. A partial file from a failed attempt is removed.
+    """
+    client = ctx_httpx_client.get()
+    tmp = f"{dest}.part"
+    for url in urls:
         sha1 = hashlib.sha1()  # noqa: S324 - matches RomM's existing rom hashing
         md5 = hashlib.md5()  # noqa: S324
         crc = 0
         size = 0
-        client = ctx_httpx_client.get()
         try:
             async with client.stream(
-                "GET", rom.source_url, timeout=None, follow_redirects=True
+                "GET", url, timeout=None, follow_redirects=True
             ) as response:
                 response.raise_for_status()
                 with open(tmp, "wb") as fh:
@@ -223,18 +247,42 @@ async def materialize_rom(rom_id: int) -> None:
                         crc = zlib.crc32(chunk, crc)
                         size += len(chunk)
             os.replace(tmp, dest)
+            return size, {
+                "crc_hash": format(crc & 0xFFFFFFFF, "08x"),
+                "md5_hash": md5.hexdigest(),
+                "sha1_hash": sha1.hexdigest(),
+            }
         except Exception:
-            log.exception("Virtual rom %s download failed", rom.fs_name)
+            log.warning("Download from %s failed, trying next source", url)
             if os.path.exists(tmp):
                 os.remove(tmp)
+    return None
+
+
+async def materialize_rom(rom_id: int) -> None:
+    """Background entry point: download a virtual rom's file and make it normal."""
+    async with initialize_context():
+        rom = db_rom_handler.get_rom(rom_id)
+        if rom is None or not rom.is_virtual or not rom.source_urls:
+            return
+        platform = db_platform_handler.get_platform(rom.platform_id)
+        if platform is None:
             return
 
+        dest = fs_virtual_handler.rom_write_path(platform.fs_slug, rom.fs_name)
+        await fs_virtual_handler.ensure_platform_dirs(platform.fs_slug)
+
+        # Try the primary URL then each mirror, so a game two sources listed can
+        # fall back to another location (archive.org nodes 500 intermittently).
+        urls = rom.source_urls
+        result = await _download_to(dest, urls)
+        if result is None:
+            log.error("Virtual rom %s download failed from all %d source(s)",
+                      rom.fs_name, len(urls))
+            return
+        size, hashes = result
+
         new_fs_path = fs_virtual_handler.roms_dir(platform.fs_slug)
-        hashes = {
-            "crc_hash": format(crc & 0xFFFFFFFF, "08x"),
-            "md5_hash": md5.hexdigest(),
-            "sha1_hash": sha1.hexdigest(),
-        }
         # Serve the real file: a normal rom needs a RomFile the download endpoint
         # streams. file_path is relative to the library, so it resolves the same
         # whether read through the library mount or written through the base.
