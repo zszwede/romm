@@ -175,6 +175,7 @@ export function detailedRomFixture(
 ): DetailedRom {
   return {
     ...romFixture(),
+    source_urls: [],
     user_saves: [],
     user_states: [],
     all_user_saves: [],

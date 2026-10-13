@@ -31,6 +31,11 @@ const { boxartStyle } = useGameAnimation({
 const confirmDownloadOpen = ref(false);
 const materializing = ref(false);
 
+// A virtual ROM can have more than one archive.org source (the same game listed
+// by two collections is deduped into one entry with several download mirrors).
+const sourceUrls = computed<string[]>(() => props.rom.source_urls ?? []);
+const sourceCount = computed(() => sourceUrls.value.length);
+
 async function confirmVirtualDownload() {
   if (materializing.value) return;
   materializing.value = true;
@@ -101,6 +106,23 @@ async function copyDownloadLink(rom: DetailedRom) {
           {{ t("rom.download") }} {{ rom.name }} (archive.org)
         </v-tooltip>
         <v-icon icon="mdi-cloud-download-outline" size="large" />
+      </v-btn>
+      <v-btn
+        v-if="rom.is_virtual && sourceCount > 1"
+        class="flex-grow-0"
+        :aria-label="`${sourceCount} download sources`"
+        @click="confirmDownloadOpen = true"
+      >
+        <v-tooltip
+          activator="parent"
+          location="top"
+          transition="fade-transition"
+          open-delay="500"
+        >
+          {{ sourceCount }} download sources (mirrors)
+        </v-tooltip>
+        <v-icon icon="mdi-source-branch" start size="small" />
+        {{ sourceCount }}
       </v-btn>
       <v-btn
         v-if="!rom.is_virtual"
@@ -184,6 +206,31 @@ async function copyDownloadLink(rom: DetailedRom) {
         <v-card-text>
           Download <strong>{{ rom.name }}</strong> from archive.org? It becomes a
           normal game once the download finishes.
+          <template v-if="sourceCount > 1">
+            <div class="mt-3 text-caption text-medium-emphasis">
+              {{ sourceCount }} sources available — they're tried in order until
+              one succeeds:
+            </div>
+            <v-list density="compact" class="bg-transparent pa-0 mt-1">
+              <v-list-item
+                v-for="(url, i) in sourceUrls"
+                :key="url"
+                class="px-0"
+                min-height="24"
+              >
+                <template #prepend>
+                  <span class="text-caption text-medium-emphasis mr-2"
+                    >{{ i + 1 }}.</span
+                  >
+                </template>
+                <v-list-item-title
+                  class="text-caption text-truncate"
+                  :title="url"
+                  >{{ url }}</v-list-item-title
+                >
+              </v-list-item>
+            </v-list>
+          </template>
         </v-card-text>
         <v-card-actions class="justify-end">
           <v-btn :disabled="materializing" @click="confirmDownloadOpen = false">
