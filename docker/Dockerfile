@@ -166,10 +166,13 @@ FROM emsdk-${BUILDARCH} AS gme-build
 ARG GME_VERSION
 ARG GME_COMMIT
 
-# checkov:skip=CKV_DOCKER_4:the ADD below is a Git URL pinned to a commit by --checksum
-ADD --checksum=${GME_COMMIT} \
-    "https://github.com/libgme/game-music-emu.git#${GME_VERSION}" \
-    /libgme
+# Clone pinned to an exact commit rather than `ADD <git-url>#<tag> --checksum`:
+# the ADD git form is a BuildKit feature buildah/podman does not implement, so
+# the checksum'd ADD fails there. Checking out the full commit SHA pins the
+# source just as tightly; GME_VERSION is kept for the version label only.
+RUN git clone --filter=blob:none https://github.com/libgme/game-music-emu.git /libgme && \
+    git -C /libgme checkout "${GME_COMMIT}" && \
+    test "$(git -C /libgme rev-parse HEAD)" = "${GME_COMMIT}"
 COPY ./docker/gme /romm-gme
 RUN /romm-gme/build.sh /libgme /gme
 
