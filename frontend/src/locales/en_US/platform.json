@@ -146,5 +146,8 @@
   "update-platform-failed": "Failed to update platform: {error}",
   "updated": "Platform updated",
   "upload-firmware": "Upload firmware",
-  "upload-roms": "Upload ROMs"
+  "upload-roms": "Upload ROMs",
+  "virtual-sources-added": "Added {n} source(s)",
+  "virtual-sources-added-syncing": "Added {n} source(s); syncing virtual games in the background",
+  "virtual-sources-failed": "Couldn't assign sources: {error}"
 }

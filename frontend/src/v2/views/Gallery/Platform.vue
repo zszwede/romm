@@ -31,6 +31,7 @@ import { formatBytes } from "@/utils";
 import FirmwareTab from "@/v2/components/Gallery/FirmwareTab.vue";
 import GalleryShell from "@/v2/components/Gallery/GalleryShell.vue";
 import GalleryTabShell from "@/v2/components/Gallery/GalleryTabShell.vue";
+import AddVirtualSourceDialog from "@/v2/components/Gallery/AddVirtualSourceDialog.vue";
 import PlatformHead from "@/v2/components/Gallery/PlatformHead.vue";
 import ScanPlatformDialog from "@/v2/components/Gallery/ScanPlatformDialog.vue";
 import SettingsTab from "@/v2/components/Gallery/SettingsTab.vue";
@@ -63,7 +64,24 @@ usePageTitle(() =>
 );
 const deleting = ref(false);
 const scanOpen = ref(false);
+const addSourceOpen = ref(false);
 const randomLoading = ref(false);
+
+// Per-platform show/hide of virtual (archive.org, not-yet-downloaded) games,
+// remembered per platform. Mirrors into the gallery store, which reads it as
+// the `virtual` request filter. Default on so newly-added virtual games are
+// visible without digging for a toggle.
+const { showVirtual } = storeToRefs(galleryRoms);
+function virtualPrefKey(platformId: number) {
+  return `platform.${platformId}.showVirtual`;
+}
+function readShowVirtualPref(platformId: number): boolean {
+  try {
+    return localStorage.getItem(virtualPrefKey(platformId)) !== "false";
+  } catch {
+    return true;
+  }
+}
 
 // Permissions: `useCan` is reactive against the grants store, so the
 // ribbon buttons hide automatically when the user's role changes.
@@ -120,6 +138,10 @@ const headLabels = computed(() => ({
   random: t("platform.random-rom"),
   download: t("platform.download-platform"),
   addPhysical: t("rom.add-physical-game"),
+  virtualToggle: showVirtual.value
+    ? t("platform.hide-virtual")
+    : t("platform.show-virtual"),
+  addVirtualSource: t("platform.add-virtual-source"),
 }));
 
 function onTabChange(next: string) {
@@ -290,6 +312,10 @@ async function loadForId(platformId: number) {
     galleryRoms.resetGallery();
     galleryRoms.setCurrentPlatform(cached);
   }
+  // Apply this platform's remembered virtual visibility before the bootstrap
+  // fetch below, so the first request already carries the right filter (no
+  // extra reload).
+  galleryRoms.setShowVirtual(readShowVirtualPref(cached.id), { refetch: false });
   // Bootstrap metadata only; grid (shell viewport-sync) and list
   // (GameListRow's onMounted) both hydrate rows per-position from here.
   await galleryRoms.fetchInitialMetadata();
@@ -349,6 +375,44 @@ function onScan() {
 function onAddPhysical() {
   if (!currentPlatform.value) return;
   emitter?.emit("showAddPhysicalGameDialog", currentPlatform.value);
+}
+
+function onAddVirtualSource() {
+  if (!currentPlatform.value) return;
+  addSourceOpen.value = true;
+}
+
+// Toggle virtual games on/off, persist per platform, and let the store
+// reload the grid with the new `virtual` filter.
+function onToggleVirtual() {
+  const p = currentPlatform.value;
+  const next = !showVirtual.value;
+  galleryRoms.setShowVirtual(next);
+  if (p) {
+    try {
+      localStorage.setItem(virtualPrefKey(p.id), String(next));
+    } catch {
+      // Private window / blocked storage: the toggle still works for this
+      // session, it just won't be remembered.
+    }
+  }
+}
+
+// After sources are assigned with "sync now", the background task creates
+// virtual ROMs over the next moments. Force-show them and reload so they
+// appear as they land.
+function onVirtualAssigned() {
+  const p = currentPlatform.value;
+  if (p) {
+    try {
+      localStorage.setItem(virtualPrefKey(p.id), "true");
+    } catch {
+      // ignore
+    }
+  }
+  galleryRoms.setShowVirtual(true);
+  galleryRoms.invalidateWindows();
+  void galleryRoms.fetchInitialMetadata();
 }
 
 // Leaving for anything that isn't another gallery keeps the store's platform
@@ -465,6 +529,8 @@ async function onDelete() {
         :can-edit="canEditPlatform"
         :can-scan="canScan"
         :can-download="canDownload"
+        :can-add-virtual="canEditPlatform"
+        :show-virtual="showVirtual"
         :random-loading="randomLoading"
         :labels="headLabels"
         @update:tab="onTabChange"
@@ -473,6 +539,8 @@ async function onDelete() {
         @add-physical="onAddPhysical"
         @random="onRandomGame"
         @download="onDownload"
+        @toggle-virtual="onToggleVirtual"
+        @add-virtual-source="onAddVirtualSource"
       />
     </template>
   </GalleryShell>
@@ -492,6 +560,8 @@ async function onDelete() {
         :can-edit="canEditPlatform"
         :can-scan="canScan"
         :can-download="canDownload"
+        :can-add-virtual="canEditPlatform"
+        :show-virtual="showVirtual"
         :random-loading="randomLoading"
         :labels="headLabels"
         @update:tab="onTabChange"
@@ -500,6 +570,8 @@ async function onDelete() {
         @add-physical="onAddPhysical"
         @random="onRandomGame"
         @download="onDownload"
+        @toggle-virtual="onToggleVirtual"
+        @add-virtual-source="onAddVirtualSource"
       />
     </template>
     <template v-if="currentPlatform">
@@ -525,5 +597,15 @@ async function onDelete() {
     v-if="currentPlatform"
     v-model="scanOpen"
     :platform="currentPlatform"
+  />
+
+  <!-- Assign archive.org sources → virtual ROMs. A typed slug inside can
+       target a brand-new platform, so a system not yet in the library can be
+       seeded from here. -->
+  <AddVirtualSourceDialog
+    v-if="currentPlatform"
+    v-model="addSourceOpen"
+    :platform="currentPlatform"
+    @assigned="onVirtualAssigned"
   />
 </template>

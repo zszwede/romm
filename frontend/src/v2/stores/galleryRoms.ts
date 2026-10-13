@@ -259,6 +259,11 @@ interface State {
   // order to the backend, which ranks a search by relevance.
   orderBy: GalleryOrderKey | null;
   orderDir: GalleryOrderDir;
+  // Whether file-less archive.org "virtual" ROMs are included in the gallery.
+  // true: show everything (no `virtual` filter). false: hide virtual (send
+  // `virtual=false`). Per-platform persistence lives in the view; this is just
+  // the live flag the request params read.
+  showVirtual: boolean;
 }
 
 const defaults = (): State => ({
@@ -281,6 +286,7 @@ const defaults = (): State => ({
   relevanceLed: false,
   orderBy: DEFAULT_ORDER_BY,
   orderDir: DEFAULT_ORDER_DIR,
+  showVirtual: true,
 });
 
 function alignToWindow(offset: number): number {
@@ -315,6 +321,17 @@ export default defineStore("v2GalleryRoms", {
   actions: {
     setCurrentPlatform(platform: Platform | null) {
       this.currentPlatform = platform;
+    },
+    /** Toggle whether virtual (archive.org) ROMs appear. Pass `refetch`
+     * false during the initial platform load (a bootstrap fetch follows
+     * anyway); true when the user flips the toggle so the grid reloads. */
+    setShowVirtual(show: boolean, { refetch = true }: { refetch?: boolean } = {}) {
+      if (this.showVirtual === show) return;
+      this.showVirtual = show;
+      if (refetch && this.onGalleryView) {
+        this.invalidateWindows();
+        void this.fetchInitialMetadata();
+      }
     },
     setCurrentCollection(collection: Collection | null) {
       this.currentCollection = collection;
@@ -420,6 +437,8 @@ export default defineStore("v2GalleryRoms", {
         offset,
         orderBy: this.orderBy ?? "",
         orderDir: this.orderDir,
+        // null → no filter (virtual + normal); false → hide virtual ROMs.
+        filterVirtual: this.showVirtual ? null : false,
         groupByMetaId: this._shouldGroupRoms() && this.onGalleryView,
         filterMatched: galleryFilter.filterMatched,
         filterFavorites: galleryFilter.filterFavorites,

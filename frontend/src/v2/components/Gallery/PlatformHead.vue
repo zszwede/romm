@@ -50,6 +50,10 @@ const props = defineProps<{
   canEdit: boolean;
   canScan: boolean;
   canDownload: boolean;
+  /** Admin can assign archive.org sources (create virtual ROMs). */
+  canAddVirtual: boolean;
+  /** Whether virtual (archive.org, not-yet-downloaded) ROMs are shown. */
+  showVirtual: boolean;
   /** Spinner on the random-game button while the parent resolves the ROM. */
   randomLoading?: boolean;
   /** Label text passed in so the parent owns i18n and this stays a
@@ -60,6 +64,9 @@ const props = defineProps<{
     random: string;
     download: string;
     addPhysical: string;
+    /** Dynamic: "Show virtual games" / "Hide virtual games". */
+    virtualToggle: string;
+    addVirtualSource: string;
   };
 }>();
 
@@ -70,6 +77,8 @@ defineEmits<{
   (e: "random"): void;
   (e: "download"): void;
   (e: "add-physical"): void;
+  (e: "toggle-virtual"): void;
+  (e: "add-virtual-source"): void;
 }>();
 
 // A square icon sized per breakpoint (smaller on phones). Driving the size
@@ -217,6 +226,26 @@ const iconSize = computed(() => (xs.value ? 116 : 148));
         :aria-label="labels.addPhysical"
         :tooltip="labels.addPhysical"
         @click="$emit('add-physical')"
+      />
+      <RBtn
+        variant="outlined"
+        surface
+        :icon="showVirtual ? 'mdi-cloud' : 'mdi-cloud-off-outline'"
+        :color="showVirtual ? 'primary' : undefined"
+        rounded="circle"
+        :aria-label="labels.virtualToggle"
+        :tooltip="labels.virtualToggle"
+        @click="$emit('toggle-virtual')"
+      />
+      <RBtn
+        v-if="canAddVirtual"
+        variant="outlined"
+        surface
+        icon="mdi-cloud-download-outline"
+        rounded="circle"
+        :aria-label="labels.addVirtualSource"
+        :tooltip="labels.addVirtualSource"
+        @click="$emit('add-virtual-source')"
       />
       <RBtn
         v-if="canScan"
