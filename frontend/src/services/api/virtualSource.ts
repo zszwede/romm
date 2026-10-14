@@ -49,9 +49,28 @@ async function syncPlatform({ platformId }: { platformId: number }) {
   return api.post<{ msg: string }>(`/virtual/platforms/${platformId}/sync`);
 }
 
+// Join two entries of the same game into one. The backend keeps the local
+// (physical) copy when present and folds the other's archive.org URLs into it
+// as download mirrors.
+async function merge({ romIds }: { romIds: number[] }) {
+  return api.post<{ msg: string; keeper_id: number; absorbed_id: number }>(
+    "/virtual/merge",
+    { rom_ids: romIds },
+  );
+}
+
+// Remove one download source (mirror) from a ROM.
+async function removeSource({ romId, url }: { romId: number; url: string }) {
+  return api.delete<{ msg: string }>(`/virtual/roms/${romId}/source`, {
+    data: { url },
+  });
+}
+
 export default {
   assignSources,
   getSources,
   deleteSource,
   syncPlatform,
+  merge,
+  removeSource,
 };

@@ -38,6 +38,7 @@
 // run.
 import {
   RBtn,
+  RDialog,
   RIcon,
   RMenu,
   RMenuItem,
@@ -53,7 +54,9 @@ import type { RomUserData, RomUserStatus } from "@/__generated__";
 import { useFavoriteToggle } from "@/composables/useFavoriteToggle";
 import collectionApi from "@/services/api/collection";
 import romApi from "@/services/api/rom";
+import virtualSourceApi from "@/services/api/virtualSource";
 import storeCollections from "@/stores/collections";
+import type { SimpleRom } from "@/stores/roms";
 import type { Events } from "@/types/emitter";
 import { romStatusMap } from "@/utils";
 import { useAnimatedNumber } from "@/v2/composables/useAnimatedNumber";
@@ -323,6 +326,71 @@ function bulkDelete() {
   emitter?.emit("showDeleteRomDialog", selection.roms);
 }
 
+// ── Merge (join a virtual entry with its local copy) ─────────────────
+// Offered only for exactly two ROMs on the same platform where at least one
+// is virtual — the absorbed row must be virtual so no local file is ever
+// lost. The local/physical copy is kept as primary; the other's archive.org
+// URLs are folded into it as fallback download sources.
+function pickKeeper(a: SimpleRom, b: SimpleRom): SimpleRom {
+  if (a.is_virtual && !b.is_virtual) return b;
+  if (b.is_virtual && !a.is_virtual) return a;
+  // Two virtual rows: prefer the identified one, then the lower id. Mirrors
+  // the backend's deterministic choice.
+  if (a.is_identified && !b.is_identified) return a;
+  if (b.is_identified && !a.is_identified) return b;
+  return a.id <= b.id ? a : b;
+}
+
+const mergeInfo = computed<{ keeper: SimpleRom; absorbed: SimpleRom } | null>(
+  () => {
+    if (selection.count !== 2) return null;
+    const [a, b] = selection.roms as [SimpleRom, SimpleRom];
+    if (a.platform_id !== b.platform_id) return null;
+    // Two local files can't be merged (which file would win?); need a virtual.
+    if (!a.is_virtual && !b.is_virtual) return null;
+    const keeper = pickKeeper(a, b);
+    return { keeper, absorbed: keeper === a ? b : a };
+  },
+);
+
+const canMerge = computed(() => canEditRom.value && mergeInfo.value !== null);
+
+const mergeConfirmOpen = ref(false);
+const merging = ref(false);
+
+function startMerge() {
+  if (canMerge.value) mergeConfirmOpen.value = true;
+}
+
+async function confirmMerge() {
+  const info = mergeInfo.value;
+  if (!info || merging.value) return;
+  merging.value = true;
+  try {
+    await virtualSourceApi.merge({
+      romIds: [info.keeper.id, info.absorbed.id],
+    });
+    removeCachedRoms([info.absorbed]);
+    galleryRomsStore.invalidateWindows();
+    void galleryRomsStore.fetchInitialMetadata();
+    selection.clear();
+    mergeConfirmOpen.value = false;
+    snackbar.success(t("gallery.merge-success"));
+  } catch (err) {
+    const e = err as {
+      response?: { data?: { detail?: string } };
+      message?: string;
+    };
+    snackbar.error(
+      t("gallery.merge-fail", {
+        error: e?.response?.data?.detail || e?.message || "",
+      }),
+    );
+  } finally {
+    merging.value = false;
+  }
+}
+
 // ── Outline ─────────────────────────────────────────────────────────
 
 /** The hill's own geometry, which its fill and the outline both read. */
@@ -561,6 +629,18 @@ function clear() {
         </template>
       </RTooltip>
 
+      <RTooltip v-if="canMerge" :text="t('gallery.selection-merge')">
+        <template #activator="{ props: tipProps }">
+          <RBtn
+            v-bind="tipProps"
+            icon="mdi-call-merge"
+            variant="text"
+            :aria-label="t('gallery.selection-merge')"
+            @click="startMerge"
+          />
+        </template>
+      </RTooltip>
+
       <RTooltip v-if="canDelete" :text="t('gallery.selection-delete')">
         <template #activator="{ props: tipProps }">
           <RBtn
@@ -590,6 +670,62 @@ function clear() {
         </RTooltip>
       </template>
     </RToolbar>
+
+    <!-- Merge confirm: destructive (deletes the absorbed row), so it asks
+         first and spells out which entry is kept. -->
+    <RDialog
+      v-if="mergeInfo"
+      v-model="mergeConfirmOpen"
+      icon="mdi-call-merge"
+      :width="520"
+      cancelable
+    >
+      <template #header>
+        <span>{{ t("gallery.merge-title") }}</span>
+      </template>
+      <template #content>
+        <div class="selection-bar__merge">
+          <p class="selection-bar__merge-lead">{{ t("gallery.merge-body") }}</p>
+          <div class="selection-bar__merge-row">
+            <RIcon icon="mdi-check-circle" color="primary" size="small" />
+            <span class="selection-bar__merge-label">{{
+              t("gallery.merge-keeps")
+            }}</span>
+            <span class="selection-bar__merge-name">{{
+              mergeInfo.keeper.name || mergeInfo.keeper.fs_name
+            }}</span>
+            <span class="selection-bar__merge-kind">{{
+              mergeInfo.keeper.is_virtual
+                ? t("gallery.merge-kind-virtual")
+                : t("gallery.merge-kind-local")
+            }}</span>
+          </div>
+          <div class="selection-bar__merge-row selection-bar__merge-row--gone">
+            <RIcon icon="mdi-source-merge" color="fg-muted" size="small" />
+            <span class="selection-bar__merge-label">{{
+              t("gallery.merge-folds")
+            }}</span>
+            <span class="selection-bar__merge-name">{{
+              mergeInfo.absorbed.name || mergeInfo.absorbed.fs_name
+            }}</span>
+            <span class="selection-bar__merge-kind">{{
+              t("gallery.merge-kind-virtual")
+            }}</span>
+          </div>
+        </div>
+      </template>
+      <template #footer>
+        <RBtn
+          variant="translucent"
+          color="primary"
+          prepend-icon="mdi-call-merge"
+          :loading="merging"
+          @click="confirmMerge"
+        >
+          {{ t("gallery.selection-merge") }}
+        </RBtn>
+      </template>
+    </RDialog>
   </div>
 </template>
 
@@ -718,5 +854,45 @@ html[data-bp~="sm-and-down"] .selection-bar {
 html[data-bp~="xs"] .selection-bar__panel {
   gap: 2px;
   padding: 0 6px;
+}
+
+.selection-bar__merge {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.selection-bar__merge-lead {
+  margin: 0 0 4px;
+  color: var(--r-color-fg-muted);
+}
+.selection-bar__merge-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.selection-bar__merge-row--gone .selection-bar__merge-name {
+  text-decoration: line-through;
+  color: var(--r-color-fg-muted);
+}
+.selection-bar__merge-label {
+  font-size: 11px;
+  font-weight: var(--r-font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--r-color-fg-muted);
+  flex: none;
+}
+.selection-bar__merge-name {
+  font-weight: var(--r-font-weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.selection-bar__merge-kind {
+  margin-left: auto;
+  flex: none;
+  font-size: 11px;
+  color: var(--r-color-fg-muted);
 }
 </style>

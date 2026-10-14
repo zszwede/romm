@@ -41,6 +41,7 @@ import MediaShelf from "@/v2/components/GameDetails/MediaShelf.vue";
 import PlayerCountBadge from "@/v2/components/GameDetails/PlayerCountBadge.vue";
 import RelatedGamesGrid from "@/v2/components/GameDetails/RelatedGamesGrid.vue";
 import SimilarGamesGrid from "@/v2/components/GameDetails/SimilarGamesGrid.vue";
+import SourcesCard from "@/v2/components/GameDetails/SourcesCard.vue";
 import { PROVIDERS, providerId } from "@/v2/components/GameDetails/providers";
 import { usePinnedMedia } from "@/v2/composables/usePinnedMedia";
 import { useWebpSupport } from "@/v2/composables/useWebpSupport";
@@ -198,6 +199,11 @@ const coverSource = computed(() => {
   <section class="overview-tab">
     <!-- 1. Summary -->
     <p v-if="summary" class="overview-tab__summary">{{ summary }}</p>
+
+    <!-- Download sources: archive.org primary + mirrors (virtual games, or a
+         local file that absorbed mirrors via a merge). Renders itself only
+         when the ROM has any. -->
+    <SourcesCard :rom="rom" />
 
     <!-- 2. Per-ROM fact rows (left-labelled). Revision, Last played +
          the per-game characteristics (Players, Age rating, RomM

@@ -159,6 +159,98 @@ async def sync_platform(request: Request, platform_id: int) -> dict[str, str]:
     return {"msg": "Sync started"}
 
 
+class MergeForm(BaseModel):
+    rom_ids: list[int] = Field(
+        ..., min_length=2, max_length=2, description="The two ROMs to join into one."
+    )
+
+
+class RemoveSourceForm(BaseModel):
+    url: str = Field(..., description="The download source URL to remove.")
+
+
+@protected_route(router.post, "/merge", [Scope.ROMS_WRITE])
+def merge_roms(
+    request: Request,
+    form_data: Annotated[MergeForm, Body()],
+) -> dict[str, Any]:
+    """Join two entries of the same game into one, keeping the local copy.
+
+    Picks a keeper and folds the other into it: the other's archive.org
+    download URLs become mirrors on the keeper, then it is deleted. A physical
+    (local-file) ROM always wins as the keeper so the local copy keeps
+    precedence; the absorbed ROM must be virtual, so nothing on disk is lost.
+    """
+    a_id, b_id = form_data.rom_ids
+    if a_id == b_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Pick two different ROMs to merge",
+        )
+    roms = {r.id: r for r in db_rom_handler.get_roms_by_ids([a_id, b_id])}
+    first, second = roms.get(a_id), roms.get(b_id)
+    if first is None or second is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="ROM not found"
+        )
+    if first.platform_id != second.platform_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Both ROMs must be on the same platform",
+        )
+
+    # The absorbed row must be virtual (no local file to lose). Prefer keeping a
+    # physical row; with two virtual rows keep the identified one, else the
+    # lower id, so the result is deterministic.
+    if not first.is_virtual and not second.is_virtual:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Can't merge two local ROMs; at least one must be virtual",
+        )
+    if first.is_virtual and not second.is_virtual:
+        keeper, absorbed = second, first
+    elif second.is_virtual and not first.is_virtual:
+        keeper, absorbed = first, second
+    elif first.is_identified and not second.is_identified:
+        keeper, absorbed = first, second
+    elif second.is_identified and not first.is_identified:
+        keeper, absorbed = second, first
+    else:
+        keeper, absorbed = (
+            (first, second) if first.id <= second.id else (second, first)
+        )
+
+    merged = db_virtual_source_handler.merge_roms(keeper.id, absorbed.id)
+    if merged is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Merge failed"
+        )
+    db_rom_handler.invalidate_filter_values_cache()
+    log.info("Merged virtual rom %s into rom %s", absorbed.id, keeper.id)
+    return {"msg": "ROMs merged", "keeper_id": keeper.id, "absorbed_id": absorbed.id}
+
+
+@protected_route(router.delete, "/roms/{rom_id}/source", [Scope.ROMS_WRITE])
+def remove_rom_source(
+    request: Request,
+    rom_id: int,
+    form_data: Annotated[RemoveSourceForm, Body()],
+) -> dict[str, str]:
+    """Remove one download source (mirror) from a ROM."""
+    rom = db_rom_handler.get_rom(rom_id)
+    if rom is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="ROM not found"
+        )
+    changed = db_virtual_source_handler.remove_source_url(rom_id, form_data.url)
+    if not changed:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ROM has no such source URL",
+        )
+    return {"msg": "Source removed"}
+
+
 @protected_route(router.post, "/roms/{rom_id}/download", [Scope.ROMS_WRITE])
 async def download_virtual_rom(request: Request, rom_id: int) -> dict[str, str]:
     """Download a virtual ROM's file from its source; it becomes a normal ROM."""

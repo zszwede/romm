@@ -32,7 +32,7 @@ from handler.scan_handler import (
     scan_rom,
 )
 from logger.logger import log
-from models.base import compute_file_name_no_tags
+from models.base import compute_file_name_no_ext, compute_file_name_no_tags
 from models.platform import Platform
 from models.rom import Rom, RomFile, compute_full_path_hash
 from models.virtual_rom_source import VirtualRomSource
@@ -40,6 +40,7 @@ from utils.context import ctx_httpx_client, initialize_context
 from utils.filesystem import sanitize_filename
 
 from .archive_org import VirtualGame, list_games
+from .progress import VirtualSyncProgress
 
 # Region spellings the allow-list accepts beyond what `normalize_region` knows
 # (canonical names + single-letter filename shortcodes like E/U/J). Covers the
@@ -89,29 +90,40 @@ def _region_ok(regions: list[str], allow: set[str]) -> bool:
     return not allow or not regions or bool(set(regions) & allow)
 
 
+def _link_existing(existing: Rom, url: str, source_id: int | None) -> tuple[str, Rom]:
+    """Attach `url` to an already-present rom as a download mirror."""
+    added = db_virtual_source_handler.add_mirror(existing.id, url, source_id)
+    return ("linked" if added else "skipped"), existing
+
+
 async def _create_virtual_rom(
     platform: Platform,
     game: VirtualGame,
     allow: set[str],
     metadata_sources: list[str],
     source_id: int | None,
-) -> str:
-    """Add one game. Returns 'created', 'linked', 'skipped' or 'failed'.
+) -> tuple[str, Rom | None]:
+    """Add one game. Returns (outcome, rom) where outcome is 'created',
+    'linked', 'skipped' or 'failed' and rom is the created/linked row (or None
+    when skipped with no row).
 
-    A game another source already contributed becomes an extra download mirror on
-    the existing row ('linked'), never a duplicate entry.
+    A game already present on the platform — whether a virtual row another
+    source contributed OR a real local file — becomes an extra download mirror
+    on that existing row ('linked'), never a duplicate entry. Matching a local
+    file means the local copy keeps precedence and the archive.org link is kept
+    only as a fallback.
     """
     fs_name = sanitize_filename(game.name)
+    fs_name_no_ext = compute_file_name_no_ext(fs_name)
     parsed = fs_rom_handler.parse_tags(fs_name)
     if not _region_ok(parsed.regions, allow):
-        return "skipped"
+        return "skipped", None
 
-    existing = db_virtual_source_handler.find_virtual_rom(platform.id, fs_name)
+    existing = db_virtual_source_handler.find_existing_rom(
+        platform.id, fs_name, fs_name_no_ext
+    )
     if existing is not None:
-        added = db_virtual_source_handler.add_mirror(
-            existing.id, game.source_url, source_id
-        )
-        return "linked" if added else "skipped"
+        return _link_existing(existing, game.source_url, source_id)
 
     fs_path = build_virtual_fs_path(platform)
     try:
@@ -135,18 +147,20 @@ async def _create_virtual_rom(
             )
         )
     except IntegrityError:
-        # Lost a race (or a non-virtual rom owns the name): link a mirror if it is
-        # still a virtual row, else leave the existing download alone.
-        existing = db_virtual_source_handler.find_virtual_rom(platform.id, fs_name)
+        # Lost a race (or a rom now owns the name): link a mirror if a row is
+        # there, else leave the existing download alone.
+        existing = db_virtual_source_handler.find_existing_rom(
+            platform.id, fs_name, fs_name_no_ext
+        )
         if existing is not None:
-            db_virtual_source_handler.add_mirror(
-                existing.id, game.source_url, source_id
-            )
-            return "linked"
-        return "skipped"
+            return _link_existing(existing, game.source_url, source_id)
+        return "skipped", None
 
     # Fetch metadata/media like a physical game, but keep the basic virtual row
-    # if that fails: it is still downloadable, just without a cover yet.
+    # if that fails: it is still downloadable, just without a cover yet. A miss
+    # is logged as a one-line warning, not a traceback — most homebrew/PD dumps
+    # simply aren't in any metadata provider, which is expected, not an error.
+    added = rom
     try:
         scanned = await scan_rom(
             scan_type=ScanType.QUICK,
@@ -164,33 +178,42 @@ async def _create_virtual_rom(
             previous_url_screenshots=rom.url_screenshots,
             metadata_sources=metadata_sources,
         )
-    except Exception:
-        log.exception("Virtual rom %s created but metadata lookup failed", fs_name)
-    return "created"
+    except Exception as exc:  # noqa: BLE001 - keep the row, record the miss
+        log.warning(
+            "Virtual rom %s created without metadata (%s)", fs_name, exc
+        )
+    return "created", added
 
 
-async def sync_source(source: VirtualRomSource) -> str:
+async def sync_source(
+    source: VirtualRomSource,
+    platform: Platform,
+    progress: VirtualSyncProgress | None = None,
+) -> str:
     """Fetch a source and create a virtual rom per listed game it is missing."""
-    platform = db_platform_handler.get_platform(source.platform_id)
-    if platform is None:
-        return "platform gone"
-
     games, kind = await list_games(source.url, rom_extensions=frozenset())
     if source.kind != kind:
         db_virtual_source_handler.update_source(source.id, {"kind": kind})
+
+    if progress is not None:
+        progress.add_total(len(games))
 
     allow = _normalized_allow(source.region_filter)
     metadata_sources = [s.value for s in MetadataSource]
     counts = {"created": 0, "linked": 0, "skipped": 0, "failed": 0}
     for game in games:
+        rom: Rom | None = None
         try:
-            outcome = await _create_virtual_rom(
+            outcome, rom = await _create_virtual_rom(
                 platform, game, allow, metadata_sources, source.id
             )
             counts[outcome] += 1
         except Exception:
             log.exception("Failed to add virtual rom %s", game.name)
             counts["failed"] += 1
+            outcome = "failed"
+        if progress is not None:
+            await progress.rom_done(rom, is_new=(outcome == "created"))
 
     if counts["created"]:
         db_rom_handler.invalidate_filter_values_cache()
@@ -204,19 +227,35 @@ async def sync_source(source: VirtualRomSource) -> str:
 
 
 async def sync_platform_sources(platform_id: int) -> None:
-    """Background entry point: sync every enabled source of a platform."""
+    """Background entry point: sync every enabled source of a platform.
+
+    Reports progress through the normal scan socket events (see
+    ``VirtualSyncProgress``) so the frontend's ScanningIndicator and gallery
+    refresh light up exactly as they do for a library scan.
+    """
     async with initialize_context():
+        platform = db_platform_handler.get_platform(platform_id)
+        if platform is None:
+            return
         sources = db_virtual_source_handler.get_sources(
             platform_id=platform_id, enabled_only=True
         )
-        for source in sources:
-            try:
-                result = await sync_source(source)
-            except Exception as exc:  # noqa: BLE001 - record and continue
-                log.exception("Virtual source %s sync failed", source.url)
-                result = f"error: {exc}"
-            db_virtual_source_handler.mark_synced(source.id, result)
-            log.info("Virtual source %s: %s", source.url, result)
+        if not sources:
+            return
+
+        progress = VirtualSyncProgress(platform)
+        await progress.start()
+        try:
+            for source in sources:
+                try:
+                    result = await sync_source(source, platform, progress)
+                except Exception as exc:  # noqa: BLE001 - record and continue
+                    log.exception("Virtual source %s sync failed", source.url)
+                    result = f"error: {exc}"
+                db_virtual_source_handler.mark_synced(source.id, result)
+                log.info("Virtual source %s: %s", source.url, result)
+        finally:
+            await progress.finish()
 
 
 async def _download_to(
