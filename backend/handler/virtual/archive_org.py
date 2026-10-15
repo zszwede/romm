@@ -35,6 +35,8 @@ import httpx2
 from logger.logger import log
 from utils.context import ctx_httpx_client
 
+from . import archive_auth
+
 REQUEST_TIMEOUT = 25
 
 # Extensions that are themselves a per-game container on archive.org.
@@ -209,8 +211,10 @@ def _encode_path(path: str) -> str:
 
 async def _get(url: str) -> httpx2.Response:
     client = ctx_httpx_client.get()
-    response = await client.get(
-        url, timeout=REQUEST_TIMEOUT, follow_redirects=True
+    # Follow redirects through archive_auth so access-restricted items (which
+    # 302 to a CDN node) keep their auth header across the cross-host hop.
+    response = await archive_auth.send_following(
+        client, "GET", url, timeout=REQUEST_TIMEOUT
     )
     response.raise_for_status()
     return response

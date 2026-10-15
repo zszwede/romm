@@ -39,6 +39,7 @@ from models.virtual_rom_source import VirtualRomSource
 from utils.context import ctx_httpx_client, initialize_context
 from utils.filesystem import sanitize_filename
 
+from . import archive_auth
 from .archive_org import VirtualGame, list_games
 from .progress import VirtualSyncProgress
 
@@ -274,9 +275,13 @@ async def _download_to(
         crc = 0
         size = 0
         try:
-            async with client.stream(
-                "GET", url, timeout=None, follow_redirects=True
-            ) as response:
+            # archive_auth follows redirects manually so an access-restricted
+            # archive.org item keeps its auth header when archive.org 302s the
+            # download to a CDN node on another host.
+            response = await archive_auth.send_following(
+                client, "GET", url, stream=True, timeout=None
+            )
+            try:
                 response.raise_for_status()
                 with open(tmp, "wb") as fh:
                     async for chunk in response.aiter_bytes(_DOWNLOAD_CHUNK):
@@ -285,6 +290,8 @@ async def _download_to(
                         md5.update(chunk)
                         crc = zlib.crc32(chunk, crc)
                         size += len(chunk)
+            finally:
+                await response.aclose()
             os.replace(tmp, dest)
             return size, {
                 "crc_hash": format(crc & 0xFFFFFFFF, "08x"),

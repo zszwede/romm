@@ -53,6 +53,12 @@ LIBRARY_BASE_PATH: Final[str] = f"{ROMM_BASE_PATH}/library"
 VIRTUAL_DOWNLOAD_BASE_PATH: Final[str] = (
     _get_env("VIRTUAL_DOWNLOAD_BASE_PATH") or LIBRARY_BASE_PATH
 )
+# archive.org S3-style keys, used so virtual-ROM sync/download can reach
+# access-restricted items (e.g. the Redump CHD collections) the account is
+# entitled to. Get them while logged in at https://archive.org/account/s3.php.
+# Left unset, archive.org access stays anonymous (public items only).
+IA_S3_ACCESS_KEY: Final[str | None] = _get_env("IA_S3_ACCESS_KEY")
+IA_S3_SECRET_KEY: Final[str | None] = _get_env("IA_S3_SECRET_KEY")
 RESOURCES_BASE_PATH: Final[str] = f"{ROMM_BASE_PATH}/resources"
 ASSETS_BASE_PATH: Final[str] = f"{ROMM_BASE_PATH}/assets"
 CACHE_BASE_PATH: Final[str] = (
