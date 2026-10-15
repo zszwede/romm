@@ -326,32 +326,35 @@ function bulkDelete() {
   emitter?.emit("showDeleteRomDialog", selection.roms);
 }
 
-// ── Merge (join a virtual entry with its local copy) ─────────────────
-// Offered only for exactly two ROMs on the same platform where at least one
-// is virtual — the absorbed row must be virtual so no local file is ever
-// lost. The local/physical copy is kept as primary; the other's archive.org
-// URLs are folded into it as fallback download sources.
-function pickKeeper(a: SimpleRom, b: SimpleRom): SimpleRom {
-  if (a.is_virtual && !b.is_virtual) return b;
-  if (b.is_virtual && !a.is_virtual) return a;
-  // Two virtual rows: prefer the identified one, then the lower id. Mirrors
-  // the backend's deterministic choice.
-  if (a.is_identified && !b.is_identified) return a;
-  if (b.is_identified && !a.is_identified) return b;
-  return a.id <= b.id ? a : b;
+// ── Merge (join two or more entries of the same game) ────────────────
+// Offered for two+ ROMs on the same platform with at most one local file —
+// every absorbed row must be virtual so no local file is ever lost. The
+// local/physical copy (or, among virtuals, the identified one) is kept as
+// primary; the others' archive.org URLs fold into it as fallback sources.
+function pickKeeper(roms: SimpleRom[]): SimpleRom {
+  // Physical first, then identified, then lowest id. Mirrors the backend's
+  // deterministic choice.
+  return [...roms].sort((a, b) => {
+    if (a.is_virtual !== b.is_virtual) return a.is_virtual ? 1 : -1;
+    if (a.is_identified !== b.is_identified) return a.is_identified ? -1 : 1;
+    return a.id - b.id;
+  })[0]!;
 }
 
-const mergeInfo = computed<{ keeper: SimpleRom; absorbed: SimpleRom } | null>(
-  () => {
-    if (selection.count !== 2) return null;
-    const [a, b] = selection.roms as [SimpleRom, SimpleRom];
-    if (a.platform_id !== b.platform_id) return null;
-    // Two local files can't be merged (which file would win?); need a virtual.
-    if (!a.is_virtual && !b.is_virtual) return null;
-    const keeper = pickKeeper(a, b);
-    return { keeper, absorbed: keeper === a ? b : a };
-  },
-);
+const mergeInfo = computed<{
+  keeper: SimpleRom;
+  absorbed: SimpleRom[];
+} | null>(() => {
+  if (selection.count < 2) return null;
+  const roms = selection.roms as SimpleRom[];
+  const platformId = roms[0]!.platform_id;
+  if (roms.some((r) => r.platform_id !== platformId)) return null;
+  // At most one local file may take part (a physical can't be absorbed without
+  // losing it); with count >= 2 this guarantees at least one virtual to fold.
+  if (roms.filter((r) => !r.is_virtual).length > 1) return null;
+  const keeper = pickKeeper(roms);
+  return { keeper, absorbed: roms.filter((r) => r.id !== keeper.id) };
+});
 
 const canMerge = computed(() => canEditRom.value && mergeInfo.value !== null);
 
@@ -368,9 +371,9 @@ async function confirmMerge() {
   merging.value = true;
   try {
     await virtualSourceApi.merge({
-      romIds: [info.keeper.id, info.absorbed.id],
+      romIds: [info.keeper.id, ...info.absorbed.map((r) => r.id)],
     });
-    removeCachedRoms([info.absorbed]);
+    removeCachedRoms(info.absorbed);
     galleryRomsStore.invalidateWindows();
     void galleryRomsStore.fetchInitialMetadata();
     selection.clear();
@@ -700,16 +703,22 @@ function clear() {
                 : t("gallery.merge-kind-local")
             }}</span>
           </div>
-          <div class="selection-bar__merge-row selection-bar__merge-row--gone">
+          <div
+            v-for="rom in mergeInfo.absorbed"
+            :key="rom.id"
+            class="selection-bar__merge-row selection-bar__merge-row--gone"
+          >
             <RIcon icon="mdi-source-merge" color="fg-muted" size="small" />
             <span class="selection-bar__merge-label">{{
               t("gallery.merge-folds")
             }}</span>
             <span class="selection-bar__merge-name">{{
-              mergeInfo.absorbed.name || mergeInfo.absorbed.fs_name
+              rom.name || rom.fs_name
             }}</span>
             <span class="selection-bar__merge-kind">{{
-              t("gallery.merge-kind-virtual")
+              rom.is_virtual
+                ? t("gallery.merge-kind-virtual")
+                : t("gallery.merge-kind-local")
             }}</span>
           </div>
         </div>

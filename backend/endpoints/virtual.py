@@ -161,7 +161,10 @@ async def sync_platform(request: Request, platform_id: int) -> dict[str, str]:
 
 class MergeForm(BaseModel):
     rom_ids: list[int] = Field(
-        ..., min_length=2, max_length=2, description="The two ROMs to join into one."
+        ...,
+        min_length=2,
+        max_length=50,
+        description="The ROMs to join into one. All but the keeper are folded in.",
     )
 
 
@@ -174,60 +177,62 @@ def merge_roms(
     request: Request,
     form_data: Annotated[MergeForm, Body()],
 ) -> dict[str, Any]:
-    """Join two entries of the same game into one, keeping the local copy.
+    """Join two or more entries of the same game into one, keeping the local copy.
 
-    Picks a keeper and folds the other into it: the other's archive.org
-    download URLs become mirrors on the keeper, then it is deleted. A physical
-    (local-file) ROM always wins as the keeper so the local copy keeps
-    precedence; the absorbed ROM must be virtual, so nothing on disk is lost.
+    Picks a single keeper and folds every other selected ROM into it: each
+    other's archive.org download URLs become mirrors on the keeper, then it is
+    deleted. A physical (local-file) ROM always wins as the keeper so the local
+    copy keeps precedence; every absorbed ROM must be virtual, so nothing on
+    disk is lost. Among virtual-only selections the identified ROM is kept, else
+    the lowest id, so the keeper is deterministic.
     """
-    a_id, b_id = form_data.rom_ids
-    if a_id == b_id:
+    # De-dupe while keeping order, so a doubled id can't become its own absorbed.
+    ids = list(dict.fromkeys(form_data.rom_ids))
+    if len(ids) < 2:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Pick two different ROMs to merge",
+            detail="Pick at least two different ROMs to merge",
         )
-    roms = {r.id: r for r in db_rom_handler.get_roms_by_ids([a_id, b_id])}
-    first, second = roms.get(a_id), roms.get(b_id)
-    if first is None or second is None:
+    roms_by_id = {r.id: r for r in db_rom_handler.get_roms_by_ids(ids)}
+    roms = [roms_by_id[i] for i in ids if i in roms_by_id]
+    if len(roms) != len(ids):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="ROM not found"
         )
-    if first.platform_id != second.platform_id:
+    if len({r.platform_id for r in roms}) > 1:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Both ROMs must be on the same platform",
+            detail="All ROMs must be on the same platform",
         )
 
-    # The absorbed row must be virtual (no local file to lose). Prefer keeping a
-    # physical row; with two virtual rows keep the identified one, else the
-    # lower id, so the result is deterministic.
-    if not first.is_virtual and not second.is_virtual:
+    # A physical row can't be absorbed without losing its local file, so at
+    # most one may take part and it must be the keeper. Deterministic keeper:
+    # physical first, then identified, then lowest id. Everything else is
+    # virtual and gets folded in.
+    if sum(not r.is_virtual for r in roms) > 1:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Can't merge two local ROMs; at least one must be virtual",
+            detail="Can't merge more than one local ROM; the rest must be virtual",
         )
-    if first.is_virtual and not second.is_virtual:
-        keeper, absorbed = second, first
-    elif second.is_virtual and not first.is_virtual:
-        keeper, absorbed = first, second
-    elif first.is_identified and not second.is_identified:
-        keeper, absorbed = first, second
-    elif second.is_identified and not first.is_identified:
-        keeper, absorbed = second, first
-    else:
-        keeper, absorbed = (
-            (first, second) if first.id <= second.id else (second, first)
-        )
+    keeper = sorted(roms, key=lambda r: (r.is_virtual, not r.is_identified, r.id))[0]
+    absorbed = [r for r in roms if r.id != keeper.id]
 
-    merged = db_virtual_source_handler.merge_roms(keeper.id, absorbed.id)
-    if merged is None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Merge failed"
-        )
+    absorbed_ids: list[int] = []
+    for rom in absorbed:
+        merged = db_virtual_source_handler.merge_roms(keeper.id, rom.id)
+        if merged is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Merge failed for ROM {rom.id}",
+            )
+        absorbed_ids.append(rom.id)
     db_rom_handler.invalidate_filter_values_cache()
-    log.info("Merged virtual rom %s into rom %s", absorbed.id, keeper.id)
-    return {"msg": "ROMs merged", "keeper_id": keeper.id, "absorbed_id": absorbed.id}
+    log.info("Merged virtual roms %s into rom %s", absorbed_ids, keeper.id)
+    return {
+        "msg": "ROMs merged",
+        "keeper_id": keeper.id,
+        "absorbed_ids": absorbed_ids,
+    }
 
 
 @protected_route(router.delete, "/roms/{rom_id}/source", [Scope.ROMS_WRITE])
