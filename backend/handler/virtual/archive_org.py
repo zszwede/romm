@@ -42,8 +42,33 @@ REQUEST_TIMEOUT = 25
 # Extensions that are themselves a per-game container on archive.org.
 ARCHIVE_EXTENSIONS = frozenset({"zip", "7z", "rar"})
 
-# Sidecar files archive.org stores as "original" that are never games.
-ALWAYS_SKIP_EXTENSIONS = frozenset({"torrent", "sqlite", "xml"})
+# Files archive.org generates or stores for every item that are never games:
+# the metadata manifests (``<id>_files.xml``, ``<id>_meta.xml``,
+# ``<id>_reviews.xml``), the metadata DB (``<id>_meta.sqlite``), the torrent
+# (``<id>_archive.torrent``) and item imagery (``__ia_thumb.jpg``,
+# ``<id>_itemimage.jpg``, scans). The identifier prefix differs per item, so
+# these are matched by extension rather than by name. Some items list such
+# sidecars with ``source == "original"``, so excluding them here (not only via
+# the source filter) is what keeps them out of the sync.
+ALWAYS_SKIP_EXTENSIONS = frozenset(
+    {
+        "torrent",
+        "sqlite",
+        "xml",
+        "json",
+        "jpg",
+        "jpeg",
+        "png",
+        "gif",
+        "bmp",
+        "webp",
+    }
+)
+
+# archive.org's own image bundle, matched by name because its extension
+# (``7z``/``zip``) is otherwise a valid ROM container. ``__ia*`` internal files
+# are handled by prefix in ``_keep``.
+ALWAYS_SKIP_BASENAMES = frozenset({"images.7z", "images.zip"})
 
 # A lone archive at an item root is only auto-enumerated as a multi-game pack
 # when it is at least this big; a small single-game zip is kept as one game.
@@ -133,6 +158,10 @@ def _classify(identifier: str, rest: str) -> ParsedSource:
 
 
 def _keep(name: str, rom_extensions: frozenset[str]) -> bool:
+    base = name.rsplit("/", 1)[-1].lower()
+    # archive.org internal files (e.g. __ia_thumb.jpg) and its image bundles.
+    if base.startswith("__ia") or base in ALWAYS_SKIP_BASENAMES:
+        return False
     ext = _extension(name)
     if not ext or ext in ALWAYS_SKIP_EXTENSIONS:
         return False

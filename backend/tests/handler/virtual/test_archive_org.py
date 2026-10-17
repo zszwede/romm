@@ -120,6 +120,24 @@ class TestGamesFromMetadata:
         assert enumerate_archive is None
         assert [g.name for g in games] == ["One Game.zip"]
 
+    def test_sidecars_marked_original_are_still_skipped(self):
+        # Some items list archive.org's own sidecars with source=="original";
+        # they must be dropped by extension/name, not kept as games.
+        meta = {
+            "files": [
+                {"name": "Real Game (USA).bin", "source": "original", "size": "500000"},
+                {"name": "__ia_thumb.jpg", "source": "original", "size": "7200"},
+                {"name": "ps2chd_files.xml", "source": "original", "size": "189300"},
+                {"name": "ps2chd_meta.sqlite", "source": "original", "size": "882000"},
+                {"name": "ps2chd_archive.torrent", "source": "original", "size": "364900"},
+                {"name": "ps2chd_reviews.xml", "source": "original", "size": "3300"},
+                {"name": "images.7z", "source": "original", "size": "120000"},
+            ]
+        }
+        games, enumerate_archive = games_from_metadata(meta, "ps2chd", ROM_EXTS)
+        assert enumerate_archive is None
+        assert [g.name for g in games] == ["Real Game (USA).bin"]
+
 
 class TestGamesFromArchiveListing:
     def test_members_parsed_with_sizes(self):

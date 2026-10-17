@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import zlib
 
 from sqlalchemy.exc import IntegrityError
@@ -91,10 +92,91 @@ def _region_ok(regions: list[str], allow: set[str]) -> bool:
     return not allow or not regions or bool(set(regions) & allow)
 
 
+# Regions kept alongside the allow-list because they are English-speaking or are
+# non-geographic status tags (homebrew, unlicensed, unknown) rather than a
+# foreign-language localization. Normalised forms: a "(UK)" tag parses to
+# "England", "(PD)" to "Public Domain", "(Unl)" to "Unlicensed".
+ENGLISH_REGIONS = frozenset(
+    {
+        "England",
+        "United Kingdom",
+        "UK",
+        "Scotland",
+        "Wales",
+        "Ireland",
+        "Australia",
+        "New Zealand",
+        "Canada",
+    }
+)
+STATUS_REGIONS = frozenset({"Public Domain", "Unlicensed", "Unknown"})
+
+
+def _region_allowed(regions: list[str], languages: list[str], allow: set[str]) -> bool:
+    """Region gate that also keeps English-playable games.
+
+    Beyond ``_region_ok`` (no filter / untagged / an allowed region), a game is
+    kept when its region is English-speaking (UK/England/Australia/...), a
+    non-geographic status tag (Public Domain/Unlicensed), or its languages
+    include English — so an English release that merely carries a foreign region
+    tag, such as "Game (Germany) (En,De)", is not dropped. Only a
+    foreign-language-only release outside the allow-list is rejected.
+    """
+    if _region_ok(regions, allow):
+        return True
+    region_set = set(regions or [])
+    if region_set & ENGLISH_REGIONS or region_set & STATUS_REGIONS:
+        return True
+    return "English" in (languages or [])
+
+
 def _link_existing(existing: Rom, url: str, source_id: int | None) -> tuple[str, Rom]:
     """Attach `url` to an already-present rom as a download mirror."""
     added = db_virtual_source_handler.add_mirror(existing.id, url, source_id)
     return ("linked" if added else "skipped"), existing
+
+
+# A bare version token in a file name — "Game v1.001 (USA).chd", "Game.v2.3" —
+# as opposed to a (parenthesised) tag. Metadata providers don't match a name
+# still carrying one, so these games import unrecognised; it's stripped from the
+# name for recognition and dedup and kept in Rom.version instead. Requires a
+# digit after the v (so "Final Fantasy VII", "V-Rally" are left alone) and a
+# word boundary before it (so "Gamev2" is not touched). Parenthesised versions
+# are already handled by parse_tags.
+BARE_VERSION_RE = re.compile(r"[\s._-]?\b(v\d+(?:\.\d+)*)\b", re.IGNORECASE)
+
+
+def strip_bare_version(name: str) -> tuple[str, str]:
+    """Return (clean_name, version) with any bare version token removed.
+
+    ``version`` is "" when none was found. The file extension is preserved, and
+    whitespace left where the token was is collapsed. When the whole stem was a
+    version, the original name is kept rather than emptied.
+    """
+    stem = compute_file_name_no_ext(name)
+    ext = name[len(stem):]
+    match = BARE_VERSION_RE.search(stem)
+    if not match:
+        return name, ""
+    version = match.group(1).lstrip("vV")
+    clean = BARE_VERSION_RE.sub("", stem)
+    clean = re.sub(r"\s{2,}", " ", clean)  # close the gap the token left
+    clean = re.sub(r"[\s._-]+$", "", clean).strip()  # tidy a dangling separator
+    return (f"{clean}{ext}" if clean else name), version
+
+
+# Pre-release / non-final dumps that aren't wanted as library entries: a
+# (parenthesised) or [bracketed] tag containing Demo, Beta, Proto/Prototype or
+# Sample (e.g. "(Demo)", "(Kiosk Demo)", "(Beta 2)", "(Proto)", "(Sample)").
+EXCLUDED_KIND_RE = re.compile(
+    r"[(\[][^)\]]*\b(?:demo|beta|proto|prototype|sample)\b[^)\]]*[)\]]",
+    re.IGNORECASE,
+)
+
+
+def is_excluded_kind(name: str) -> bool:
+    """Whether a name is a demo/beta/proto/sample build to discard on import."""
+    return bool(EXCLUDED_KIND_RE.search(name))
 
 
 async def _create_virtual_rom(
@@ -114,10 +196,13 @@ async def _create_virtual_rom(
     file means the local copy keeps precedence and the archive.org link is kept
     only as a fallback.
     """
-    fs_name = sanitize_filename(game.name)
+    clean_name, bare_version = strip_bare_version(game.name)
+    fs_name = sanitize_filename(clean_name)
     fs_name_no_ext = compute_file_name_no_ext(fs_name)
+    if is_excluded_kind(fs_name):
+        return "skipped", None
     parsed = fs_rom_handler.parse_tags(fs_name)
-    if not _region_ok(parsed.regions, allow):
+    if not _region_allowed(parsed.regions, parsed.languages, allow):
         return "skipped", None
 
     existing = db_virtual_source_handler.find_existing_rom(
@@ -140,7 +225,7 @@ async def _create_virtual_rom(
                 regions=parsed.regions,
                 languages=parsed.languages,
                 revision=parsed.revision,
-                version=parsed.version,
+                version=parsed.version or bare_version,
                 tags=parsed.other_tags,
                 url_cover="",
                 url_manual="",

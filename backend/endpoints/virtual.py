@@ -140,6 +140,50 @@ def list_sources(
     return [VirtualSourceSchema.model_validate(s) for s in sources]
 
 
+class UpdateSourceForm(BaseModel):
+    """Patch an existing source. Only the provided fields change."""
+
+    url: str | None = Field(default=None, description="New archive.org source URL.")
+    region_filter: list[str] | None = Field(
+        default=None, description="Replace the region filter (empty list clears it)."
+    )
+    enabled: bool | None = Field(
+        default=None, description="Enable/disable without deleting."
+    )
+
+
+@protected_route(router.patch, "/sources/{id}", [Scope.PLATFORMS_WRITE])
+def update_source(
+    request: Request,
+    id: int,
+    form_data: Annotated[UpdateSourceForm, Body()],
+) -> VirtualSourceSchema:
+    """Edit a source in place (URL, region filter, enabled)."""
+    source = db_virtual_source_handler.get_source(id)
+    if source is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Source not found"
+        )
+
+    data = form_data.model_dump(exclude_unset=True)
+    if "url" in data:
+        if data["url"] is None or not data["url"].strip():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="URL cannot be empty",
+            )
+        data["url"] = data["url"].strip()
+        _validate_urls([data["url"]])
+    if "region_filter" in data and not data["region_filter"]:
+        # An empty/None list clears the filter (keep everything).
+        data["region_filter"] = None
+
+    db_virtual_source_handler.update_source(id, data)
+    updated = db_virtual_source_handler.get_source(id)
+    log.info("Updated virtual source %d: %s", id, ", ".join(sorted(data)))
+    return VirtualSourceSchema.model_validate(updated)
+
+
 @protected_route(router.delete, "/sources/{id}", [Scope.PLATFORMS_WRITE])
 def delete_source(request: Request, id: int) -> dict[str, str]:
     """Remove a source. Virtual ROMs already created from it are left in place."""

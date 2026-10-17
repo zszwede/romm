@@ -150,5 +150,14 @@
   "virtual-target-hint": "Defaults to this platform. Pick another — even one not in your library yet — to create and seed it.",
   "virtual-sources-added": "Added {n} source(s)",
   "virtual-sources-added-syncing": "Added {n} source(s); syncing virtual games in the background",
-  "virtual-sources-failed": "Couldn't assign sources: {error}"
+  "virtual-sources-failed": "Couldn't assign sources: {error}",
+  "virtual-current-sources": "Current sources on {platform}",
+  "virtual-no-sources": "No archive.org sources on this platform yet.",
+  "virtual-source-confirm-delete": "Delete this source? Games already created from it stay in your library.",
+  "virtual-source-deleted": "Source deleted",
+  "virtual-source-delete-failed": "Couldn't delete source: {error}",
+  "virtual-source-updated": "Source updated",
+  "virtual-source-update-failed": "Couldn't update source: {error}",
+  "virtual-source-never-synced": "Never synced",
+  "virtual-source-disabled": "Disabled"
 }

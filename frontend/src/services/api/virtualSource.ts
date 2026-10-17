@@ -41,6 +41,24 @@ async function getSources({ platformId }: { platformId?: number } = {}) {
   });
 }
 
+async function updateSource({
+  id,
+  url,
+  regionFilter,
+  enabled,
+}: {
+  id: number;
+  url?: string | undefined;
+  regionFilter?: string[] | null | undefined;
+  enabled?: boolean | undefined;
+}) {
+  const body: Record<string, unknown> = {};
+  if (url !== undefined) body.url = url;
+  if (regionFilter !== undefined) body.region_filter = regionFilter;
+  if (enabled !== undefined) body.enabled = enabled;
+  return api.patch<VirtualSource>(`/virtual/sources/${id}`, body);
+}
+
 async function deleteSource({ id }: { id: number }) {
   return api.delete<{ msg: string }>(`/virtual/sources/${id}`);
 }
@@ -70,6 +88,7 @@ async function removeSource({ romId, url }: { romId: number; url: string }) {
 export default {
   assignSources,
   getSources,
+  updateSource,
   deleteSource,
   syncPlatform,
   merge,
