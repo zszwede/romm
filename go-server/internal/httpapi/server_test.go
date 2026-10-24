@@ -68,6 +68,10 @@ type fakeStore struct {
 	raID      int
 	playlists []store.Playlist
 	tracks    []store.Track
+
+	regCalls  int
+	lastReg   store.DeviceTokenInput
+	regDevID  string
 }
 
 func (f *fakeStore) Counts(context.Context) (store.Counts, error) { return f.counts, nil }
@@ -110,6 +114,16 @@ func (f *fakeStore) AddTrack(_ context.Context, playlistID, romFileID int64) (in
 	return id, nil
 }
 func (f *fakeStore) RemoveTrack(context.Context, int64) error                { return nil }
+func (f *fakeStore) RegisterDeviceToken(_ context.Context, in store.DeviceTokenInput) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.regCalls++
+	f.lastReg = in
+	if f.regDevID == "" {
+		f.regDevID = in.DeviceID
+	}
+	return f.regDevID, nil
+}
 func (f *fakeStore) UserIDByUsername(context.Context, string) (int64, error) { return f.userID, nil }
 func (f *fakeStore) SetRomUserProps(_ context.Context, uid, romID int64, p store.RomUserProps) (int, error) {
 	f.mu.Lock()

@@ -21,6 +21,7 @@ import (
 
 	"github.com/zszwede/romm-go/internal/achievements"
 	"github.com/zszwede/romm-go/internal/auth"
+	"github.com/zszwede/romm-go/internal/deviceauth"
 	"github.com/zszwede/romm-go/internal/metadata"
 	"github.com/zszwede/romm-go/internal/scan"
 	"github.com/zszwede/romm-go/internal/store"
@@ -70,6 +71,7 @@ type DataStore interface {
 	ListPlaylistTracks(ctx context.Context, playlistID int64) ([]store.Track, error)
 	AddTrack(ctx context.Context, playlistID, romFileID int64) (int64, error)
 	RemoveTrack(ctx context.Context, trackID int64) error
+	RegisterDeviceToken(ctx context.Context, in store.DeviceTokenInput) (string, error)
 }
 
 // Deps are the server's collaborators. Passed as a struct so new ones can be
@@ -102,6 +104,7 @@ type Server struct {
 	ach         AchievementService
 	assetsRoot  string
 	static      fs.FS
+	flows       *deviceauth.Store
 	mux         *http.ServeMux
 }
 
@@ -115,6 +118,7 @@ func New(d Deps) *Server {
 		virt:       d.Virtual,
 		ach:        d.Achievements,
 		assetsRoot: d.AssetsRoot,
+		flows:      deviceauth.NewStore(),
 		mux:        http.NewServeMux(),
 	}
 	if d.ScanRoot != "" {
@@ -159,6 +163,14 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/metadata/search", s.searchMetadata)
 	s.mux.HandleFunc("POST /api/virtual/check", s.virtualCheck)
 	s.mux.HandleFunc("POST /api/virtual/dispatch", s.virtualDispatch)
+
+	// Device authorization flow (RFC 8628-style). init/token are open; the
+	// approval endpoints require the user's bearer token.
+	s.mux.HandleFunc("POST /api/auth/device/init", s.deviceInit)
+	s.mux.HandleFunc("GET /api/auth/device/pending/{user_code}", s.devicePending)
+	s.mux.HandleFunc("POST /api/auth/device/approve", s.deviceApprove)
+	s.mux.HandleFunc("POST /api/auth/device/deny", s.deviceDeny)
+	s.mux.HandleFunc("POST /api/auth/device/token", s.deviceToken)
 
 	// Music playlists.
 	s.mux.HandleFunc("GET /api/music/playlists", s.listPlaylists)

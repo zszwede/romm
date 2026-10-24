@@ -3,7 +3,9 @@ package store
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/zszwede/romm-go/internal/scan"
 )
@@ -76,4 +78,91 @@ func TestUpsert_Integration(t *testing.T) {
 		t.Fatalf("after apply: fs_name=%q is_virtual=%d", fsName, virt)
 	}
 	t.Logf("insert + applyDownloaded OK against live schema (platform %d), rolling back", pid)
+}
+
+// TestRegisterDeviceToken_Integration validates the device + client_token
+// write-back against the real schema inside an always-rolled-back transaction.
+// It also exercises the dedupe-on-second-pair path. Skipped unless DB creds set.
+func TestRegisterDeviceToken_Integration(t *testing.T) {
+	host, pass := os.Getenv("DB_HOST"), os.Getenv("DB_PASSWD")
+	if host == "" || pass == "" {
+		t.Skip("DB_HOST/DB_PASSWD not set; skipping live schema test")
+	}
+	envOr := func(k, d string) string {
+		if v := os.Getenv(k); v != "" {
+			return v
+		}
+		return d
+	}
+	st, err := Open(host, envOr("DB_PORT", "3306"), envOr("DB_USER", "romm-user"), pass, envOr("DB_NAME", "romm"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+	var uid int64
+	if err := st.DB.QueryRowContext(ctx, "SELECT id FROM users LIMIT 1").Scan(&uid); err != nil {
+		t.Fatalf("pick user: %v", err)
+	}
+
+	tx, err := st.DB.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer tx.Rollback() // never persist
+
+	exp := time.Now().Add(24 * time.Hour)
+	in := DeviceTokenInput{
+		UserID:                 uid,
+		DeviceID:               "gotest-device-uuid-0001",
+		ClientDeviceIdentifier: "__gotest_install__",
+		Name:                   "Go Test Device",
+		Client:                 "grout",
+		Platform:               "muOS",
+		ClientVersion:          "1.0.0",
+		HashedToken:            "gotest" + strings.Repeat("0", 58), // 64-char sha256-shaped
+		Scopes:                 "me.read roms.read",
+		ExpiresAt:              &exp,
+	}
+
+	id1, err := registerDeviceToken(ctx, tx, in)
+	if err != nil {
+		t.Fatalf("first register against live schema failed: %v", err)
+	}
+	if id1 != in.DeviceID {
+		t.Fatalf("first register device id = %q, want %q", id1, in.DeviceID)
+	}
+
+	// Second pairing of the same install must dedupe onto the same device row,
+	// not insert a new one, and must add a second token.
+	in2 := in
+	in2.DeviceID = "gotest-device-uuid-0002" // ignored; dedupe wins
+	in2.Name = "Go Test Device (renamed)"
+	in2.HashedToken = "gotest" + strings.Repeat("1", 58)
+	id2, err := registerDeviceToken(ctx, tx, in2)
+	if err != nil {
+		t.Fatalf("second register failed: %v", err)
+	}
+	if id2 != id1 {
+		t.Fatalf("re-pair created a new device (%q) instead of reusing %q", id2, id1)
+	}
+
+	var deviceCount, tokenCount int
+	if err := tx.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM devices WHERE user_id=? AND client_device_identifier=?",
+		uid, in.ClientDeviceIdentifier).Scan(&deviceCount); err != nil {
+		t.Fatalf("count devices: %v", err)
+	}
+	if deviceCount != 1 {
+		t.Fatalf("device rows = %d, want 1 (dedupe)", deviceCount)
+	}
+	if err := tx.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM client_tokens WHERE device_id=?", id1).Scan(&tokenCount); err != nil {
+		t.Fatalf("count tokens: %v", err)
+	}
+	if tokenCount != 2 {
+		t.Fatalf("token rows = %d, want 2", tokenCount)
+	}
+	t.Logf("device+token write-back OK against live schema (user %d), rolling back", uid)
 }
