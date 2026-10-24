@@ -34,12 +34,15 @@ against pve2 + IGDB):
 1. ✅ skeleton + DB + static serving + heartbeat/roms (read-only)
 2. ✅ JWT auth + platforms/rom-detail reads + rom_user write
 3. ✅ in-process worker queue (drops Redis) + filesystem scanner + native
-   hashing. *(ES-DE gamelist.xml metadata ingest not yet ported.)*
+   hashing + ES-DE gamelist.xml ingest.
 4. ✅ metadata providers — IGDB (live-tested). ScreenScraper/Hasheous slot
    behind the same `Provider` interface when needed.
-5. ✅ virtual-download orchestration — availability check + job dispatch to the
-   merge service. The merge worker itself (extraction/switch-tool/delivery)
-   remains the RommDownloader service, as today.
+5. ✅ virtual downloads — **RommDownloader absorbed in-process** (internal/
+   downloader + internal/downloadsvc): the binary runs the download→extract→
+   switch-merge→deliver pipeline itself (external tools 7z/unar/switch-tool via
+   exec). Set ROMM_DOWNLOADER_CONFIG to enable; else it dispatches to an
+   external merge service. Applying a finished job's result back to the DB
+   (mark physical + path) is the one remaining wire-up.
 6. ✅ (scoped) collections read. **Intentionally out of the rewrite's initial
    scope** (ported later only if used): save/state sync, play-session
    streaming/netplay, OIDC/device-auth, music playlists, achievements,

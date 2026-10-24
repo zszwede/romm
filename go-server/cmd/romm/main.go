@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/zszwede/romm-go/internal/config"
+	"github.com/zszwede/romm-go/internal/downloadsvc"
 	"github.com/zszwede/romm-go/internal/httpapi"
 	"github.com/zszwede/romm-go/internal/metadata"
 	"github.com/zszwede/romm-go/internal/store"
@@ -35,8 +36,18 @@ func main() {
 	}
 
 	var virt httpapi.VirtualService
-	if cfg.MergeServiceURL != "" {
+	switch {
+	case cfg.DownloaderConfig != "":
+		svc, err := downloadsvc.LoadAndStart(cfg.DownloaderConfig)
+		if err != nil {
+			log.Fatalf("downloader: %v", err)
+		}
+		defer svc.Shutdown()
+		virt = svc
+		log.Printf("virtual downloads: in-process (config %s)", cfg.DownloaderConfig)
+	case cfg.MergeServiceURL != "":
 		virt = virtual.NewClient(cfg.MergeServiceURL, cfg.MergeServiceToken)
+		log.Printf("virtual downloads: dispatch to %s", cfg.MergeServiceURL)
 	}
 
 	srv := &http.Server{

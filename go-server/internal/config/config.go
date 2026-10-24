@@ -31,6 +31,11 @@ type Config struct {
 	// WebRoot: directory with the built frontend (Vue dist + player assets).
 	// Empty => serve the embedded placeholder shell.
 	WebRoot string
+
+	// DownloaderConfig: path to a RommDownloader config.yaml. When set, the
+	// virtual-download pipeline runs IN-PROCESS (absorbed). When empty, the
+	// server dispatches to an external merge service if MergeServiceURL is set.
+	DownloaderConfig string
 }
 
 // FromEnv reads the configuration, matching the container's env var names.
@@ -49,6 +54,7 @@ func FromEnv() Config {
 		MergeServiceURL:   os.Getenv("MERGE_SERVICE_URL"),
 		MergeServiceToken: os.Getenv("MERGE_SERVICE_TOKEN"),
 		WebRoot:           os.Getenv("ROMM_WEB_ROOT"),
+		DownloaderConfig:  os.Getenv("ROMM_DOWNLOADER_CONFIG"),
 	}
 }
 
