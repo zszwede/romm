@@ -45,11 +45,11 @@ against pve2 + IGDB):
    to the DB (ApplyDownloaded: mark the rom physical, record the delivered file).
 6. ✅ collections read; **ROM content serving** (download + in-browser play,
    range-capable); **save/state sync** (upload/list/download/delete under
-   ROMM_BASE_PATH/assets). **Still out of scope** (multi-user/remote or needing
-   a live external service, hence unused in a single-user install and not
-   testable here): OIDC/device-auth, play-session streaming/netplay, music
-   playlists, RetroAchievements. In-browser ROM patching is client-side
-   (rom-patcher asset + ROM content endpoint already served).
+   ROMM_BASE_PATH/assets). **RetroAchievements** (GET /api/roms/{id}/achievements?user=; mock-tested
+   client). **Still out of scope** — multi-user/remote, unused in a single-user
+   install and not testable here: OIDC/device-auth, play-session streaming/
+   netplay, music playlists. In-browser ROM patching is client-side (rom-patcher
+   asset + ROM content endpoint already served).
 
 The frontend is the built Vue SPA: served from `ROMM_WEB_ROOT` (the real dist +
 player assets, as the Python image ships them) with an embedded placeholder as

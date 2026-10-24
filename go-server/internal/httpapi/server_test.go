@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/zszwede/romm-go/internal/achievements"
 	"github.com/zszwede/romm-go/internal/metadata"
 	"github.com/zszwede/romm-go/internal/scan"
 	"github.com/zszwede/romm-go/internal/store"
@@ -63,6 +64,8 @@ type fakeStore struct {
 
 	assets    []store.Asset
 	assetKind string
+
+	raID int
 }
 
 func (f *fakeStore) Counts(context.Context) (store.Counts, error) { return f.counts, nil }
@@ -75,6 +78,9 @@ func (f *fakeStore) GetRom(_ context.Context, id int64) (*store.RomDetail, error
 }
 func (f *fakeStore) GetRomLocation(context.Context, int64) (string, string, bool, error) {
 	return f.locPath, f.locName, f.locFound, nil
+}
+func (f *fakeStore) GetRomRAID(context.Context, int64) (int, bool, error) {
+	return f.raID, f.raID > 0, nil
 }
 func (f *fakeStore) UserIDByUsername(context.Context, string) (int64, error) { return f.userID, nil }
 func (f *fakeStore) SetRomUserProps(_ context.Context, uid, romID int64, p store.RomUserProps) (int, error) {
@@ -394,6 +400,35 @@ func TestRomContent(t *testing.T) {
 	fs.locFound = false
 	if w := do(s, "GET", "/api/roms/9/content", tok, ""); w.Code != 404 {
 		t.Errorf("missing: want 404 got %d", w.Code)
+	}
+}
+
+type fakeAch struct{ user string }
+
+func (f *fakeAch) UserGameProgress(_ context.Context, gameID int, user string) (achievements.Progress, error) {
+	f.user = user
+	return achievements.Progress{GameID: gameID, Title: "Game", Total: 50, Earned: 7}, nil
+}
+
+func TestAchievements(t *testing.T) {
+	fs := &fakeStore{raID: 14402}
+	s := New(Deps{Store: fs, AuthSecret: testSecret, Achievements: &fakeAch{}})
+	tok := token(t, testSecret, "access", "romm:oauth")
+
+	if w := do(s, "GET", "/api/roms/7/achievements?user=xiam", "", ""); w.Code != 401 {
+		t.Errorf("no token: want 401 got %d", w.Code)
+	}
+	if w := do(s, "GET", "/api/roms/7/achievements", tok, ""); w.Code != 400 {
+		t.Errorf("missing user: want 400 got %d", w.Code)
+	}
+	w := do(s, "GET", "/api/roms/7/achievements?user=xiam", tok, "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"earned":7`) || !strings.Contains(w.Body.String(), `"total":50`) {
+		t.Fatalf("code %d body %s", w.Code, w.Body.String())
+	}
+	// Rom without an RA id -> 404.
+	fs.raID = 0
+	if w := do(s, "GET", "/api/roms/8/achievements?user=xiam", tok, ""); w.Code != 404 {
+		t.Errorf("no ra id: want 404 got %d", w.Code)
 	}
 }
 

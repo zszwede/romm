@@ -410,3 +410,19 @@ func (s *Store) GetRomLocation(ctx context.Context, id int64) (fsPath, fsName st
 	}
 	return fsPath, fsName, fsName != "", nil
 }
+
+// GetRomRAID returns a rom's RetroAchievements game id (0 if unset).
+func (s *Store) GetRomRAID(ctx context.Context, id int64) (int, bool, error) {
+	var ra sql.NullInt64
+	err := s.DB.QueryRowContext(ctx, `SELECT ra_id FROM roms WHERE id = ?`, id).Scan(&ra)
+	if err == sql.ErrNoRows {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	if !ra.Valid || ra.Int64 == 0 {
+		return 0, false, nil
+	}
+	return int(ra.Int64), true, nil
+}

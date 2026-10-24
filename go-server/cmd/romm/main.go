@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/zszwede/romm-go/internal/achievements"
 	"github.com/zszwede/romm-go/internal/config"
 	"github.com/zszwede/romm-go/internal/downloadsvc"
 	"github.com/zszwede/romm-go/internal/httpapi"
@@ -35,6 +36,11 @@ func main() {
 		provider = metadata.NewIGDB(cfg.IGDBClientID, cfg.IGDBClientSecret)
 	}
 
+	var ach httpapi.AchievementService
+	if cfg.RAAPIKey != "" {
+		ach = achievements.NewClient(cfg.RAAPIKey)
+	}
+
 	var virt httpapi.VirtualService
 	switch {
 	case cfg.DownloaderConfig != "":
@@ -53,14 +59,15 @@ func main() {
 	srv := &http.Server{
 		Addr: cfg.Addr,
 		Handler: httpapi.New(httpapi.Deps{
-			Store:      st,
-			AuthSecret: cfg.AuthSecret,
-			Queue:      queue,
-			ScanRoot:   scanRoot,
-			Metadata:   provider,
-			Virtual:    virt,
-			WebRoot:    cfg.WebRoot,
-			AssetsRoot: filepath.Join(cfg.BasePath, "assets"),
+			Store:        st,
+			AuthSecret:   cfg.AuthSecret,
+			Queue:        queue,
+			ScanRoot:     scanRoot,
+			Metadata:     provider,
+			Virtual:      virt,
+			Achievements: ach,
+			WebRoot:      cfg.WebRoot,
+			AssetsRoot:   filepath.Join(cfg.BasePath, "assets"),
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

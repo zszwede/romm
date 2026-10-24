@@ -21,6 +21,7 @@ type Config struct {
 
 	IGDBClientID     string
 	IGDBClientSecret string
+	RAAPIKey         string // RETROACHIEVEMENTS_API_KEY
 
 	// MergeService* point at the RommDownloader merge service for the
 	// virtual-download workflow. (The Python app keeps these in its Downloads
@@ -51,6 +52,7 @@ func FromEnv() Config {
 		AuthSecret:        os.Getenv("ROMM_AUTH_SECRET_KEY"),
 		IGDBClientID:      os.Getenv("IGDB_CLIENT_ID"),
 		IGDBClientSecret:  os.Getenv("IGDB_CLIENT_SECRET"),
+		RAAPIKey:          os.Getenv("RETROACHIEVEMENTS_API_KEY"),
 		MergeServiceURL:   os.Getenv("MERGE_SERVICE_URL"),
 		MergeServiceToken: os.Getenv("MERGE_SERVICE_TOKEN"),
 		WebRoot:           os.Getenv("ROMM_WEB_ROOT"),

@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zszwede/romm-go/internal/achievements"
 	"github.com/zszwede/romm-go/internal/auth"
 	"github.com/zszwede/romm-go/internal/metadata"
 	"github.com/zszwede/romm-go/internal/scan"
@@ -35,6 +36,11 @@ type VirtualService interface {
 	Dispatch(ctx context.Context, j virtual.Job) (string, error)
 }
 
+// AchievementService fetches a user's RetroAchievements progress for a game.
+type AchievementService interface {
+	UserGameProgress(ctx context.Context, gameID int, user string) (achievements.Progress, error)
+}
+
 // Version reported by the heartbeat. Distinct from the Python app's so it's
 // obvious which backend answered during the migration.
 const Version = "go-0.2.0"
@@ -47,6 +53,7 @@ type DataStore interface {
 	ListPlatforms(ctx context.Context) ([]store.Platform, error)
 	GetRom(ctx context.Context, id int64) (*store.RomDetail, error)
 	GetRomLocation(ctx context.Context, id int64) (fsPath, fsName string, found bool, err error)
+	GetRomRAID(ctx context.Context, id int64) (raID int, found bool, err error)
 	UserIDByUsername(ctx context.Context, username string) (int64, error)
 	SetRomUserProps(ctx context.Context, userID, romID int64, p store.RomUserProps) (int, error)
 	ListPlatformDirs(ctx context.Context) ([]scan.PlatformDir, error)
@@ -62,12 +69,13 @@ type DataStore interface {
 // Deps are the server's collaborators. Passed as a struct so new ones can be
 // added without churning every call site.
 type Deps struct {
-	Store      DataStore
-	AuthSecret string
-	Queue      *worker.Queue
-	ScanRoot   string // ES-DE roms root, e.g. ROMM_BASE_PATH/library/roms
-	Metadata   metadata.Provider
-	Virtual    VirtualService
+	Store        DataStore
+	AuthSecret   string
+	Queue        *worker.Queue
+	ScanRoot     string // ES-DE roms root, e.g. ROMM_BASE_PATH/library/roms
+	Metadata     metadata.Provider
+	Virtual      VirtualService
+	Achievements AchievementService
 	// WebRoot is a directory holding the built frontend (the real Vue dist +
 	// EmulatorJS/Ruffle/js-dos player assets). When set and present it is served
 	// from disk; otherwise the embedded placeholder shell is used. (The heavy
@@ -85,6 +93,7 @@ type Server struct {
 	libraryRoot string // parent of scanRoot; roms resolve as <libraryRoot>/<fs_path>/<fs_name>
 	meta        metadata.Provider
 	virt        VirtualService
+	ach         AchievementService
 	assetsRoot  string
 	static      fs.FS
 	mux         *http.ServeMux
@@ -98,6 +107,7 @@ func New(d Deps) *Server {
 		scanRoot:   d.ScanRoot,
 		meta:       d.Metadata,
 		virt:       d.Virtual,
+		ach:        d.Achievements,
 		assetsRoot: d.AssetsRoot,
 		mux:        http.NewServeMux(),
 	}
@@ -134,6 +144,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/roms", s.listRoms)
 	s.mux.HandleFunc("GET /api/roms/{id}", s.getRom)
 	s.mux.HandleFunc("GET /api/roms/{id}/content", s.getRomContent)
+	s.mux.HandleFunc("GET /api/roms/{id}/achievements", s.getAchievements)
 	s.mux.HandleFunc("GET /api/collections", s.listCollections)
 	s.mux.HandleFunc("PUT /api/roms/{id}/props", s.setRomProps)
 	s.mux.HandleFunc("POST /api/scan", s.triggerScan)
@@ -266,6 +277,42 @@ func (s *Server) getRomContent(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Disposition", "attachment; filename*=UTF-8''"+url.PathEscape(fsName))
 	http.ServeContent(w, r, fsName, st.ModTime(), f) // handles Range + If-Modified-Since
+}
+
+// getAchievements returns a user's RetroAchievements progress for a rom.
+// ?user=<ra_username> is required.
+func (s *Server) getAchievements(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.authUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if s.ach == nil {
+		writeErr(w, http.StatusServiceUnavailable, "retroachievements not configured")
+		return
+	}
+	user := strings.TrimSpace(r.URL.Query().Get("user"))
+	if user == "" {
+		writeErr(w, http.StatusBadRequest, "user required")
+		return
+	}
+	id := int64(atoiDefault(r.PathValue("id"), 0))
+	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	defer cancel()
+	raID, found, err := s.st.GetRomRAID(ctx, id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	if !found {
+		writeErr(w, http.StatusNotFound, "rom has no RetroAchievements id")
+		return
+	}
+	prog, err := s.ach.UserGameProgress(ctx, raID, user)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "retroachievements error")
+		return
+	}
+	writeJSON(w, http.StatusOK, prog)
 }
 
 func (s *Server) listCollections(w http.ResponseWriter, r *http.Request) {
