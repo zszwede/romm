@@ -22,7 +22,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpapi.New(st).Handler(),
+		Handler:           httpapi.New(st, cfg.AuthSecret).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	log.Printf("romm-go %s listening on %s (db %s:%s/%s)",

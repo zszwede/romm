@@ -14,18 +14,23 @@ type Config struct {
 	DBPass   string
 	DBName   string
 	BasePath string // ROMM_BASE_PATH: the state dir (library/, resources/, config/)
+	// AuthSecret is ROMM_AUTH_SECRET_KEY: the HS256 HMAC key the Python app signs
+	// access tokens with. Reused verbatim so tokens issued by the existing
+	// backend verify here unchanged.
+	AuthSecret string
 }
 
 // FromEnv reads the configuration, matching the container's env var names.
 func FromEnv() Config {
 	return Config{
-		Addr:     env("ROMM_GO_ADDR", ":8088"),
-		DBHost:   env("DB_HOST", "127.0.0.1"),
-		DBPort:   env("DB_PORT", "3306"),
-		DBUser:   env("DB_USER", "romm-user"),
-		DBPass:   os.Getenv("DB_PASSWD"),
-		DBName:   env("DB_NAME", "romm"),
-		BasePath: os.Getenv("ROMM_BASE_PATH"),
+		Addr:       env("ROMM_GO_ADDR", ":8088"),
+		DBHost:     env("DB_HOST", "127.0.0.1"),
+		DBPort:     env("DB_PORT", "3306"),
+		DBUser:     env("DB_USER", "romm-user"),
+		DBPass:     os.Getenv("DB_PASSWD"),
+		DBName:     env("DB_NAME", "romm"),
+		BasePath:   os.Getenv("ROMM_BASE_PATH"),
+		AuthSecret: os.Getenv("ROMM_AUTH_SECRET_KEY"),
 	}
 }
 

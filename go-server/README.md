@@ -14,7 +14,7 @@ Endpoints: `GET /api/heartbeat`, `GET /api/roms?platform_id=&limit=`.
 
 ## Roadmap
 1. ✅ skeleton + DB + static serving + heartbeat/roms (read-only)
-2. core write API (roms/platforms/collections, rom_user) + JWT auth compatible
+2. ✅ core write API (roms/platforms/collections, rom_user) + JWT auth compatible
    with the current `ROMM_AUTH_SECRET_KEY`
 3. scanner + native hashing + ES-DE gamelists + in-process worker queue (drops Redis)
 4. metadata providers (IGDB, ScreenScraper, Hasheous first)

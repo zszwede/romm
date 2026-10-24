@@ -8,6 +8,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -98,4 +99,153 @@ func (s *Store) ListRoms(ctx context.Context, platformID int64, limit int) ([]Ro
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// Platform is the list projection with a rom count.
+type Platform struct {
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	Slug     string `json:"slug"`
+	FsSlug   string `json:"fs_slug"`
+	RomCount int    `json:"rom_count"`
+}
+
+// ListPlatforms returns every platform with how many roms it holds.
+func (s *Store) ListPlatforms(ctx context.Context) ([]Platform, error) {
+	rows, err := s.DB.QueryContext(ctx, `
+		SELECT p.id,
+		       COALESCE(NULLIF(p.custom_name,''), p.name, p.slug),
+		       p.slug,
+		       COALESCE(p.fs_slug, ''),
+		       COUNT(r.id)
+		FROM platforms p
+		LEFT JOIN roms r ON r.platform_id = p.id
+		GROUP BY p.id, p.custom_name, p.name, p.slug, p.fs_slug
+		ORDER BY 2`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Platform{}
+	for rows.Next() {
+		var p Platform
+		if err := rows.Scan(&p.ID, &p.Name, &p.Slug, &p.FsSlug, &p.RomCount); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// RomDetail is the single-rom projection.
+type RomDetail struct {
+	ID            int64  `json:"id"`
+	Name          string `json:"name"`
+	FsName        string `json:"fs_name"`
+	FsNameNoExt   string `json:"fs_name_no_ext"`
+	PlatformID    int64  `json:"platform_id"`
+	IsVirtual     bool   `json:"is_virtual"`
+	MissingFromFs bool   `json:"missing_from_fs"`
+	Summary       string `json:"summary"`
+	URLCover      string `json:"url_cover"`
+	SizeBytes     int64  `json:"fs_size_bytes"`
+	SourceURL     string `json:"source_url"`
+	IgdbID        *int64 `json:"igdb_id"`
+	SsID          *int64 `json:"ss_id"`
+	MobyID        *int64 `json:"moby_id"`
+}
+
+func nullToPtr(n sql.NullInt64) *int64 {
+	if !n.Valid {
+		return nil
+	}
+	v := n.Int64
+	return &v
+}
+
+// GetRom returns a rom by id, or (nil, nil) when it does not exist.
+func (s *Store) GetRom(ctx context.Context, id int64) (*RomDetail, error) {
+	var d RomDetail
+	var igdb, ss, moby sql.NullInt64
+	err := s.DB.QueryRowContext(ctx, `
+		SELECT id, COALESCE(name,''), COALESCE(fs_name,''), COALESCE(fs_name_no_ext,''),
+		       platform_id, is_virtual, missing_from_fs,
+		       COALESCE(summary,''), COALESCE(url_cover,''), COALESCE(fs_size_bytes,0),
+		       COALESCE(source_url,''), igdb_id, ss_id, moby_id
+		FROM roms WHERE id = ?`, id).
+		Scan(&d.ID, &d.Name, &d.FsName, &d.FsNameNoExt, &d.PlatformID, &d.IsVirtual,
+			&d.MissingFromFs, &d.Summary, &d.URLCover, &d.SizeBytes, &d.SourceURL,
+			&igdb, &ss, &moby)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	d.IgdbID, d.SsID, d.MobyID = nullToPtr(igdb), nullToPtr(ss), nullToPtr(moby)
+	return &d, nil
+}
+
+// UserIDByUsername resolves a username (JWT sub) to its users.id.
+func (s *Store) UserIDByUsername(ctx context.Context, username string) (int64, error) {
+	var id int64
+	err := s.DB.QueryRowContext(ctx, `SELECT id FROM users WHERE username = ?`, username).Scan(&id)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return id, err
+}
+
+// RomUserProps carries the per-user rom state fields the write endpoint can set.
+// A nil pointer means "leave unchanged".
+type RomUserProps struct {
+	Status     *string `json:"status"`
+	Backlogged *bool   `json:"backlogged"`
+	NowPlaying *bool   `json:"now_playing"`
+	Hidden     *bool   `json:"hidden"`
+	Rating     *int    `json:"rating"`
+}
+
+// SetRomUserProps upserts the per-user state for (userID, romID). Returns the
+// number of fields written (0 when nothing was supplied).
+func (s *Store) SetRomUserProps(ctx context.Context, userID, romID int64, p RomUserProps) (int, error) {
+	cols := []string{}
+	vals := []any{}
+	add := func(c string, v any) { cols = append(cols, c); vals = append(vals, v) }
+	if p.Status != nil {
+		add("status", *p.Status)
+	}
+	if p.Backlogged != nil {
+		add("backlogged", *p.Backlogged)
+	}
+	if p.NowPlaying != nil {
+		add("now_playing", *p.NowPlaying)
+	}
+	if p.Hidden != nil {
+		add("hidden", *p.Hidden)
+	}
+	if p.Rating != nil {
+		add("rating", *p.Rating)
+	}
+	if len(cols) == 0 {
+		return 0, nil
+	}
+
+	insCols := append([]string{"rom_id", "user_id"}, cols...)
+	ph := strings.TrimSuffix(strings.Repeat("?,", len(insCols)), ",")
+	upd := make([]string, 0, len(cols)+1)
+	for _, c := range cols {
+		upd = append(upd, fmt.Sprintf("%s=VALUES(%s)", c, c))
+	}
+	upd = append(upd, "updated_at=NOW()")
+	q := fmt.Sprintf(
+		"INSERT INTO rom_user (%s, created_at, updated_at) VALUES (%s, NOW(), NOW()) "+
+			"ON DUPLICATE KEY UPDATE %s",
+		strings.Join(insCols, ", "), ph, strings.Join(upd, ", "),
+	)
+	args := append([]any{romID, userID}, vals...)
+	if _, err := s.DB.ExecContext(ctx, q, args...); err != nil {
+		return 0, err
+	}
+	return len(cols), nil
 }
