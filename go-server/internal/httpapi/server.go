@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/zszwede/romm-go/internal/auth"
+	"github.com/zszwede/romm-go/internal/metadata"
 	"github.com/zszwede/romm-go/internal/scan"
 	"github.com/zszwede/romm-go/internal/store"
 	"github.com/zszwede/romm-go/internal/worker"
@@ -38,16 +39,34 @@ type DataStore interface {
 	Upsert(ctx context.Context, r scan.Record) error
 }
 
+// Deps are the server's collaborators. Passed as a struct so new ones can be
+// added without churning every call site.
+type Deps struct {
+	Store      DataStore
+	AuthSecret string
+	Queue      *worker.Queue
+	ScanRoot   string // ES-DE roms root, e.g. ROMM_BASE_PATH/library/roms
+	Metadata   metadata.Provider
+}
+
 type Server struct {
 	st       DataStore
 	secret   string
 	queue    *worker.Queue
-	scanRoot string // ES-DE roms root, e.g. ROMM_BASE_PATH/library/roms
+	scanRoot string
+	meta     metadata.Provider
 	mux      *http.ServeMux
 }
 
-func New(st DataStore, authSecret string, queue *worker.Queue, scanRoot string) *Server {
-	s := &Server{st: st, secret: authSecret, queue: queue, scanRoot: scanRoot, mux: http.NewServeMux()}
+func New(d Deps) *Server {
+	s := &Server{
+		st:       d.Store,
+		secret:   d.AuthSecret,
+		queue:    d.Queue,
+		scanRoot: d.ScanRoot,
+		meta:     d.Metadata,
+		mux:      http.NewServeMux(),
+	}
 	s.routes()
 	return s
 }
@@ -63,6 +82,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/scan", s.triggerScan)
 	s.mux.HandleFunc("GET /api/scan", s.listScans)
 	s.mux.HandleFunc("GET /api/scan/{id}", s.scanStatus)
+	s.mux.HandleFunc("GET /api/metadata/search", s.searchMetadata)
 
 	sub, err := fs.Sub(web.Static, "static")
 	if err != nil {
@@ -208,6 +228,32 @@ func (s *Server) scanStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, job)
+}
+
+// searchMetadata searches the configured provider by name. Requires auth
+// (it hits a rate-limited external API).
+func (s *Server) searchMetadata(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.authUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if s.meta == nil {
+		writeErr(w, http.StatusServiceUnavailable, "no metadata provider configured")
+		return
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if q == "" {
+		writeErr(w, http.StatusBadRequest, "q required")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	defer cancel()
+	games, err := s.meta.Search(ctx, q)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "provider error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"provider": s.meta.Name(), "items": games})
 }
 
 // authUser extracts and verifies the Bearer access token, if any.

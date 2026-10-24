@@ -10,6 +10,7 @@ import (
 
 	"github.com/zszwede/romm-go/internal/config"
 	"github.com/zszwede/romm-go/internal/httpapi"
+	"github.com/zszwede/romm-go/internal/metadata"
 	"github.com/zszwede/romm-go/internal/store"
 	"github.com/zszwede/romm-go/internal/worker"
 )
@@ -27,9 +28,20 @@ func main() {
 	queue := worker.New(ctx, 2, 64)
 	scanRoot := filepath.Join(cfg.BasePath, "library", "roms")
 
+	var provider metadata.Provider
+	if cfg.IGDBClientID != "" && cfg.IGDBClientSecret != "" {
+		provider = metadata.NewIGDB(cfg.IGDBClientID, cfg.IGDBClientSecret)
+	}
+
 	srv := &http.Server{
-		Addr:              cfg.Addr,
-		Handler:           httpapi.New(st, cfg.AuthSecret, queue, scanRoot).Handler(),
+		Addr: cfg.Addr,
+		Handler: httpapi.New(httpapi.Deps{
+			Store:      st,
+			AuthSecret: cfg.AuthSecret,
+			Queue:      queue,
+			ScanRoot:   scanRoot,
+			Metadata:   provider,
+		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	log.Printf("romm-go %s listening on %s (db %s:%s/%s, scan root %s)",

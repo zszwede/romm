@@ -13,10 +13,18 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/zszwede/romm-go/internal/metadata"
 	"github.com/zszwede/romm-go/internal/scan"
 	"github.com/zszwede/romm-go/internal/store"
 	"github.com/zszwede/romm-go/internal/worker"
 )
+
+type fakeProvider struct{}
+
+func (fakeProvider) Name() string { return "fake" }
+func (fakeProvider) Search(_ context.Context, q string) ([]metadata.Game, error) {
+	return []metadata.Game{{Provider: "fake", ProviderID: 1, Name: "Match for " + q}}, nil
+}
 
 const testSecret = "unit-test-secret"
 
@@ -75,7 +83,14 @@ func newTestServer(t *testing.T) (*Server, *fakeStore) {
 		t.Fatal(err)
 	}
 	q := worker.New(context.Background(), 2, 16)
-	return New(fs, testSecret, q, root), fs
+	s := New(Deps{
+		Store:      fs,
+		AuthSecret: testSecret,
+		Queue:      q,
+		ScanRoot:   root,
+		Metadata:   fakeProvider{},
+	})
+	return s, fs
 }
 
 func token(t *testing.T, secret, typ, iss string) string {
@@ -202,6 +217,21 @@ func TestScan_AuthAndRun(t *testing.T) {
 	}
 	if fs.upserts[0].FsName != "Zelda.nsp" || fs.upserts[0].PlatformID != 28 {
 		t.Errorf("upsert record wrong: %+v", fs.upserts[0])
+	}
+}
+
+func TestSearchMetadata(t *testing.T) {
+	s, _ := newTestServer(t)
+	if w := do(s, "GET", "/api/metadata/search?q=zelda", "", ""); w.Code != 401 {
+		t.Errorf("no token: want 401 got %d", w.Code)
+	}
+	tok := token(t, testSecret, "access", "romm:oauth")
+	if w := do(s, "GET", "/api/metadata/search", tok, ""); w.Code != 400 {
+		t.Errorf("missing q: want 400 got %d", w.Code)
+	}
+	w := do(s, "GET", "/api/metadata/search?q=zelda", tok, "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "Match for zelda") {
+		t.Fatalf("code %d body %s", w.Code, w.Body.String())
 	}
 }
 
