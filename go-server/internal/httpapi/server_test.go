@@ -1,8 +1,10 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -58,6 +60,9 @@ type fakeStore struct {
 
 	locPath, locName string
 	locFound         bool
+
+	assets    []store.Asset
+	assetKind string
 }
 
 func (f *fakeStore) Counts(context.Context) (store.Counts, error) { return f.counts, nil }
@@ -81,6 +86,28 @@ func (f *fakeStore) SetRomUserProps(_ context.Context, uid, romID int64, p store
 func (f *fakeStore) ListPlatformDirs(context.Context) ([]scan.PlatformDir, error) { return f.dirs, nil }
 func (f *fakeStore) ListCollections(context.Context) ([]store.Collection, error) {
 	return []store.Collection{{ID: 1, Name: "Favorites", IsFavorite: true}}, nil
+}
+func (f *fakeStore) ListAssets(context.Context, string, int64, int64) ([]store.Asset, error) {
+	return f.assets, nil
+}
+func (f *fakeStore) InsertAsset(_ context.Context, kind string, a store.Asset) (int64, error) {
+	f.assetKind = kind
+	a.ID = int64(len(f.assets) + 1)
+	f.assets = append(f.assets, a)
+	return a.ID, nil
+}
+func (f *fakeStore) AssetLocation(context.Context, string, int64) (string, string, bool, error) {
+	if len(f.assets) == 0 {
+		return "", "", false, nil
+	}
+	a := f.assets[len(f.assets)-1]
+	return a.FilePath, a.FileName, true, nil
+}
+func (f *fakeStore) DeleteAsset(context.Context, string, int64) error {
+	if len(f.assets) > 0 {
+		f.assets = f.assets[:len(f.assets)-1]
+	}
+	return nil
 }
 func (f *fakeStore) Upsert(_ context.Context, r scan.Record) error {
 	f.mu.Lock()
@@ -367,6 +394,54 @@ func TestRomContent(t *testing.T) {
 	fs.locFound = false
 	if w := do(s, "GET", "/api/roms/9/content", tok, ""); w.Code != 404 {
 		t.Errorf("missing: want 404 got %d", w.Code)
+	}
+}
+
+func TestSaveSync(t *testing.T) {
+	tmp := t.TempDir()
+	fs := &fakeStore{userID: 42}
+	s := New(Deps{Store: fs, AuthSecret: testSecret, AssetsRoot: tmp})
+	tok := token(t, testSecret, "access", "romm:oauth")
+
+	// Upload a save (multipart).
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	fw, _ := mw.CreateFormFile("file", "mario.srm")
+	fw.Write([]byte("SAVEDATA"))
+	mw.WriteField("emulator", "mgba")
+	mw.Close()
+	r := httptest.NewRequest("POST", "/api/roms/7/saves", &buf)
+	r.Header.Set("Content-Type", mw.FormDataContentType())
+	r.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, r)
+	if w.Code != 201 {
+		t.Fatalf("upload: code %d body %s", w.Code, w.Body.String())
+	}
+	data, err := os.ReadFile(filepath.Join(tmp, "saves", "user-42", "rom-7", "mario.srm"))
+	if err != nil || string(data) != "SAVEDATA" {
+		t.Fatalf("stored file = %q err=%v", data, err)
+	}
+	if fs.assetKind != "saves" || len(fs.assets) != 1 || fs.assets[0].SizeBytes != 8 || fs.assets[0].Emulator != "mgba" {
+		t.Fatalf("inserted asset wrong: kind=%s %+v", fs.assetKind, fs.assets)
+	}
+
+	// List, download, delete.
+	if lw := do(s, "GET", "/api/roms/7/saves", tok, ""); lw.Code != 200 || !strings.Contains(lw.Body.String(), "mario.srm") {
+		t.Errorf("list: code %d body %s", lw.Code, lw.Body.String())
+	}
+	if cw := do(s, "GET", "/api/saves/1/content", tok, ""); cw.Code != 200 || cw.Body.String() != "SAVEDATA" {
+		t.Errorf("content: code %d body %q", cw.Code, cw.Body.String())
+	}
+	if dw := do(s, "DELETE", "/api/saves/1", tok, ""); dw.Code != 204 {
+		t.Errorf("delete: code %d", dw.Code)
+	}
+	if _, err := os.Stat(filepath.Join(tmp, "saves", "user-42", "rom-7", "mario.srm")); !os.IsNotExist(err) {
+		t.Error("file not removed on delete")
+	}
+	// Auth required.
+	if w := do(s, "POST", "/api/roms/7/saves", "", ""); w.Code != 401 {
+		t.Errorf("no token upload: want 401 got %d", w.Code)
 	}
 }
 

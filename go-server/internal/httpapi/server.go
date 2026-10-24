@@ -53,6 +53,10 @@ type DataStore interface {
 	Upsert(ctx context.Context, r scan.Record) error
 	EnrichFromGamelist(ctx context.Context, platformID int64, fsName, name, summary string) error
 	ListCollections(ctx context.Context) ([]store.Collection, error)
+	ListAssets(ctx context.Context, kind string, romID, userID int64) ([]store.Asset, error)
+	InsertAsset(ctx context.Context, kind string, a store.Asset) (int64, error)
+	AssetLocation(ctx context.Context, kind string, id int64) (filePath, fileName string, found bool, err error)
+	DeleteAsset(ctx context.Context, kind string, id int64) error
 }
 
 // Deps are the server's collaborators. Passed as a struct so new ones can be
@@ -69,6 +73,8 @@ type Deps struct {
 	// from disk; otherwise the embedded placeholder shell is used. (The heavy
 	// player assets are ~400MB, impractical to embed in the executable.)
 	WebRoot string
+	// AssetsRoot: directory for uploaded saves/states (ROMM_BASE_PATH/assets).
+	AssetsRoot string
 }
 
 type Server struct {
@@ -79,19 +85,21 @@ type Server struct {
 	libraryRoot string // parent of scanRoot; roms resolve as <libraryRoot>/<fs_path>/<fs_name>
 	meta        metadata.Provider
 	virt        VirtualService
+	assetsRoot  string
 	static      fs.FS
 	mux         *http.ServeMux
 }
 
 func New(d Deps) *Server {
 	s := &Server{
-		st:       d.Store,
-		secret:   d.AuthSecret,
-		queue:    d.Queue,
-		scanRoot: d.ScanRoot,
-		meta:     d.Metadata,
-		virt:     d.Virtual,
-		mux:      http.NewServeMux(),
+		st:         d.Store,
+		secret:     d.AuthSecret,
+		queue:      d.Queue,
+		scanRoot:   d.ScanRoot,
+		meta:       d.Metadata,
+		virt:       d.Virtual,
+		assetsRoot: d.AssetsRoot,
+		mux:        http.NewServeMux(),
 	}
 	if d.ScanRoot != "" {
 		s.libraryRoot = filepath.Dir(d.ScanRoot)
@@ -134,6 +142,15 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/metadata/search", s.searchMetadata)
 	s.mux.HandleFunc("POST /api/virtual/check", s.virtualCheck)
 	s.mux.HandleFunc("POST /api/virtual/dispatch", s.virtualDispatch)
+
+	// Save/state sync: identical routes for both kinds.
+	for _, kind := range []string{"saves", "states"} {
+		k := kind
+		s.mux.HandleFunc("GET /api/roms/{id}/"+k, func(w http.ResponseWriter, r *http.Request) { s.listAssets(w, r, k) })
+		s.mux.HandleFunc("POST /api/roms/{id}/"+k, func(w http.ResponseWriter, r *http.Request) { s.uploadAsset(w, r, k) })
+		s.mux.HandleFunc("GET /api/"+k+"/{id}/content", func(w http.ResponseWriter, r *http.Request) { s.assetContent(w, r, k) })
+		s.mux.HandleFunc("DELETE /api/"+k+"/{id}", func(w http.ResponseWriter, r *http.Request) { s.deleteAsset(w, r, k) })
+	}
 
 	s.mux.Handle("GET /", s.spaHandler())
 }

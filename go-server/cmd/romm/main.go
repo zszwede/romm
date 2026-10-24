@@ -60,6 +60,7 @@ func main() {
 			Metadata:   provider,
 			Virtual:    virt,
 			WebRoot:    cfg.WebRoot,
+			AssetsRoot: filepath.Join(cfg.BasePath, "assets"),
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

@@ -43,10 +43,13 @@ against pve2 + IGDB):
    exec). Set ROMM_DOWNLOADER_CONFIG to enable; else it dispatches to an
    external merge service. A completion poller applies each finished job back
    to the DB (ApplyDownloaded: mark the rom physical, record the delivered file).
-6. ✅ (scoped) collections read. **Intentionally out of the rewrite's initial
-   scope** (ported later only if used): save/state sync, play-session
-   streaming/netplay, OIDC/device-auth, music playlists, achievements,
-   in-browser ROM patching.
+6. ✅ collections read; **ROM content serving** (download + in-browser play,
+   range-capable); **save/state sync** (upload/list/download/delete under
+   ROMM_BASE_PATH/assets). **Still out of scope** (multi-user/remote or needing
+   a live external service, hence unused in a single-user install and not
+   testable here): OIDC/device-auth, play-session streaming/netplay, music
+   playlists, RetroAchievements. In-browser ROM patching is client-side
+   (rom-patcher asset + ROM content endpoint already served).
 
 The frontend is the built Vue SPA: served from `ROMM_WEB_ROOT` (the real dist +
 player assets, as the Python image ships them) with an embedded placeholder as
