@@ -82,6 +82,9 @@ func (f *fakeStore) Upsert(_ context.Context, r scan.Record) error {
 	f.upserts = append(f.upserts, r)
 	return nil
 }
+func (f *fakeStore) EnrichFromGamelist(context.Context, int64, string, string, string) error {
+	return nil
+}
 func (f *fakeStore) upsertCount() int { f.mu.Lock(); defer f.mu.Unlock(); return len(f.upserts) }
 
 func newTestServer(t *testing.T) (*Server, *fakeStore) {

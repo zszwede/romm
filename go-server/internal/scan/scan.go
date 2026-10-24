@@ -26,9 +26,13 @@ type Record struct {
 	Digests      hash.Digests
 }
 
-// Sink receives discovered roms (implemented by the store).
+// Sink receives discovered roms and gamelist metadata (implemented by the store).
 type Sink interface {
 	Upsert(ctx context.Context, r Record) error
+	// EnrichFromGamelist applies ES-DE gamelist.xml metadata to a rom matched by
+	// (platformID, fsName). Implementations should only fill empty fields so an
+	// already-identified rom's name/summary is not clobbered.
+	EnrichFromGamelist(ctx context.Context, platformID int64, fsName, name, summary string) error
 }
 
 // PlatformDir maps a platform id to its on-disk folder name.
@@ -41,6 +45,7 @@ type Result struct {
 	Found    int `json:"found"`
 	Upserted int `json:"upserted"`
 	Skipped  int `json:"skipped"`
+	Enriched int `json:"enriched"` // roms touched by gamelist.xml metadata
 }
 
 var tagRE = regexp.MustCompile(`\([^)]*\)|\[[^\]]*\]`)
@@ -114,6 +119,22 @@ func Platforms(ctx context.Context, root string, plats []PlatformDir, sink Sink,
 				return res, err
 			}
 			res.Upserted++
+		}
+
+		// ES-DE gamelist.xml sits in the same (overlay-merged) platform folder.
+		glEntries, gerr := ParseGamelist(filepath.Join(dir, "gamelist.xml"))
+		if gerr != nil {
+			continue // a malformed gamelist shouldn't abort the whole scan
+		}
+		for _, ge := range glEntries {
+			base := ge.Base()
+			if base == "" || (ge.Name == "" && ge.Desc == "") {
+				continue
+			}
+			if err := sink.EnrichFromGamelist(ctx, p.ID, base, ge.Name, ge.Desc); err != nil {
+				return res, err
+			}
+			res.Enriched++
 		}
 	}
 	return res, nil

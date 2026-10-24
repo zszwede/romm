@@ -49,6 +49,7 @@ type DataStore interface {
 	SetRomUserProps(ctx context.Context, userID, romID int64, p store.RomUserProps) (int, error)
 	ListPlatformDirs(ctx context.Context) ([]scan.PlatformDir, error)
 	Upsert(ctx context.Context, r scan.Record) error
+	EnrichFromGamelist(ctx context.Context, platformID int64, fsName, name, summary string) error
 	ListCollections(ctx context.Context) ([]store.Collection, error)
 }
 

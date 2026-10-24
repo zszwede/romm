@@ -349,3 +349,16 @@ func (s *Store) ListCollections(ctx context.Context) ([]Collection, error) {
 	}
 	return out, rows.Err()
 }
+
+// EnrichFromGamelist fills a rom's empty name/summary from ES-DE gamelist.xml,
+// matched on (platform_id, fs_name). Existing (identified) values are kept.
+func (s *Store) EnrichFromGamelist(ctx context.Context, platformID int64, fsName, name, summary string) error {
+	_, err := s.DB.ExecContext(ctx, `
+		UPDATE roms
+		SET name = IF(name IS NULL OR name = '', NULLIF(?, ''), name),
+		    summary = IF(summary IS NULL OR summary = '', NULLIF(?, ''), summary),
+		    updated_at = NOW()
+		WHERE platform_id = ? AND fs_name = ?`,
+		name, summary, platformID, fsName)
+	return err
+}

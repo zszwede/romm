@@ -7,10 +7,17 @@ import (
 	"testing"
 )
 
-type fakeSink struct{ recs []Record }
+type fakeSink struct {
+	recs     []Record
+	enriched []string
+}
 
 func (f *fakeSink) Upsert(_ context.Context, r Record) error {
 	f.recs = append(f.recs, r)
+	return nil
+}
+func (f *fakeSink) EnrichFromGamelist(_ context.Context, _ int64, fsName, name, summary string) error {
+	f.enriched = append(f.enriched, fsName+"|"+name+"|"+summary)
 	return nil
 }
 
@@ -65,6 +72,32 @@ func TestPlatforms(t *testing.T) {
 	}
 	if _, ok := byName["gamelist.xml"]; ok {
 		t.Error("gamelist.xml should be skipped")
+	}
+}
+
+func TestGamelistEnrich(t *testing.T) {
+	root := t.TempDir()
+	mustDir(t, filepath.Join(root, "n64"))
+	mustFile(t, filepath.Join(root, "n64", "GoldenEye (USA).n64"), "rom")
+	mustFile(t, filepath.Join(root, "n64", "gamelist.xml"),
+		`<?xml version="1.0"?><gameList>`+
+			`<game><path>./GoldenEye (USA).n64</path><name>GoldenEye 007</name><desc>Bond.</desc></game>`+
+			`<game><path>./Absent.n64</path><name>Ignored Name</name></game>`+
+			`</gameList>`)
+
+	sink := &fakeSink{}
+	res, err := Platforms(context.Background(), root, []PlatformDir{{ID: 9, FsSlug: "n64"}}, sink, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Found != 1 {
+		t.Errorf("found = %d, want 1 (gamelist.xml not counted as a rom)", res.Found)
+	}
+	if res.Enriched != 2 || len(sink.enriched) != 2 {
+		t.Fatalf("enriched = %d / %d, want 2", res.Enriched, len(sink.enriched))
+	}
+	if sink.enriched[0] != "GoldenEye (USA).n64|GoldenEye 007|Bond." {
+		t.Errorf("enrich[0] = %q", sink.enriched[0])
 	}
 }
 
