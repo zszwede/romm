@@ -27,6 +27,10 @@ type Config struct {
 	// config; the Go server reads them from the environment.)
 	MergeServiceURL   string
 	MergeServiceToken string
+
+	// WebRoot: directory with the built frontend (Vue dist + player assets).
+	// Empty => serve the embedded placeholder shell.
+	WebRoot string
 }
 
 // FromEnv reads the configuration, matching the container's env var names.
@@ -44,6 +48,7 @@ func FromEnv() Config {
 		IGDBClientSecret:  os.Getenv("IGDB_CLIENT_SECRET"),
 		MergeServiceURL:   os.Getenv("MERGE_SERVICE_URL"),
 		MergeServiceToken: os.Getenv("MERGE_SERVICE_TOKEN"),
+		WebRoot:           os.Getenv("ROMM_WEB_ROOT"),
 	}
 }
 

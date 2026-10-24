@@ -8,9 +8,13 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
+	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -57,6 +61,11 @@ type Deps struct {
 	ScanRoot   string // ES-DE roms root, e.g. ROMM_BASE_PATH/library/roms
 	Metadata   metadata.Provider
 	Virtual    VirtualService
+	// WebRoot is a directory holding the built frontend (the real Vue dist +
+	// EmulatorJS/Ruffle/js-dos player assets). When set and present it is served
+	// from disk; otherwise the embedded placeholder shell is used. (The heavy
+	// player assets are ~400MB, impractical to embed in the executable.)
+	WebRoot string
 }
 
 type Server struct {
@@ -66,6 +75,7 @@ type Server struct {
 	scanRoot string
 	meta     metadata.Provider
 	virt     VirtualService
+	static   fs.FS
 	mux      *http.ServeMux
 }
 
@@ -79,8 +89,26 @@ func New(d Deps) *Server {
 		virt:     d.Virtual,
 		mux:      http.NewServeMux(),
 	}
+	s.static = resolveStatic(d.WebRoot)
 	s.routes()
 	return s
+}
+
+// resolveStatic serves the real frontend from WebRoot when it exists, else the
+// embedded placeholder shell.
+func resolveStatic(webRoot string) fs.FS {
+	if webRoot != "" {
+		if st, err := os.Stat(filepath.Join(webRoot, "index.html")); err == nil && !st.IsDir() {
+			log.Printf("serving frontend from disk: %s", webRoot)
+			return os.DirFS(webRoot)
+		}
+		log.Printf("WebRoot %q has no index.html; using embedded shell", webRoot)
+	}
+	sub, err := fs.Sub(web.Static, "static")
+	if err != nil {
+		log.Fatalf("embed static: %v", err)
+	}
+	return sub
 }
 
 func (s *Server) Handler() http.Handler { return logging(s.mux) }
@@ -99,11 +127,32 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/virtual/check", s.virtualCheck)
 	s.mux.HandleFunc("POST /api/virtual/dispatch", s.virtualDispatch)
 
-	sub, err := fs.Sub(web.Static, "static")
-	if err != nil {
-		log.Fatalf("embed static: %v", err)
-	}
-	s.mux.Handle("GET /", http.FileServer(http.FS(sub)))
+	s.mux.Handle("GET /", s.spaHandler())
+}
+
+// spaHandler serves static files, falling back to index.html for unknown paths
+// so the Vue client router handles deep links (e.g. /rom/35950).
+func (s *Server) spaHandler() http.Handler {
+	fileServer := http.FileServer(http.FS(s.static))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
+		if p == "" {
+			p = "index.html"
+		}
+		if f, err := s.static.Open(p); err == nil {
+			_ = f.Close()
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+		// Unknown path with no file extension -> SPA route: serve index.html.
+		if idx, err := s.static.Open("index.html"); err == nil {
+			defer idx.Close()
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = io.Copy(w, idx)
+			return
+		}
+		http.NotFound(w, r)
+	})
 }
 
 func (s *Server) heartbeat(w http.ResponseWriter, r *http.Request) {

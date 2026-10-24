@@ -293,6 +293,33 @@ func TestVirtual_CheckAndDispatch(t *testing.T) {
 	}
 }
 
+func TestSPA_DiskWebRootAndFallback(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("<!doctype html><title>RomM</title>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "assets", "app.js"), []byte("console.log(1)"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := New(Deps{Store: &fakeStore{}, WebRoot: root})
+
+	// Real asset is served from disk.
+	if w := do(s, "GET", "/assets/app.js", "", ""); w.Code != 200 || !strings.Contains(w.Body.String(), "console.log") {
+		t.Errorf("asset: code %d body %q", w.Code, w.Body.String())
+	}
+	// Deep client route with no file -> index.html (SPA fallback).
+	if w := do(s, "GET", "/rom/35950", "", ""); w.Code != 200 || !strings.Contains(w.Body.String(), "<title>RomM</title>") {
+		t.Errorf("spa fallback: code %d body %q", w.Code, w.Body.String())
+	}
+	// index itself.
+	if w := do(s, "GET", "/", "", ""); w.Code != 200 || !strings.Contains(w.Body.String(), "RomM") {
+		t.Errorf("index: code %d", w.Code)
+	}
+}
+
 func itoa(n int64) string {
 	if n == 0 {
 		return "0"

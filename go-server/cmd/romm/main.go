@@ -48,6 +48,7 @@ func main() {
 			ScanRoot:   scanRoot,
 			Metadata:   provider,
 			Virtual:    virt,
+			WebRoot:    cfg.WebRoot,
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
