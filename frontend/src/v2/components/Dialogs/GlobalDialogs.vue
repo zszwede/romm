@@ -13,6 +13,7 @@ import InstallOnDeviceDialog from "@/v2/components/Dialogs/InstallOnDeviceDialog
 import ManageCollectionsDialog from "@/v2/components/Dialogs/ManageCollectionsDialog.vue";
 import ManualUploadTargetDialog from "@/v2/components/Dialogs/ManualUploadTargetDialog.vue";
 import MatchRomDialog from "@/v2/components/Dialogs/MatchRomDialog.vue";
+import MultiMergeDialog from "@/v2/components/Dialogs/MultiMergeDialog.vue";
 import RefreshMetadataDialog from "@/v2/components/Dialogs/RefreshMetadataDialog.vue";
 import SearchCoverDialog from "@/v2/components/Dialogs/SearchCoverDialog.vue";
 import ShowQRCodeDialog from "@/v2/components/Dialogs/ShowQRCodeDialog.vue";
@@ -46,6 +47,7 @@ defineOptions({ inheritAttrs: false });
   <CreateSmartCollectionDialog />
   <AddPhysicalGameDialog />
   <AddVirtualGameDialog />
+  <MultiMergeDialog />
   <AboutDialog />
   <ChangelogDialog />
   <LoadSaveStateDialog />

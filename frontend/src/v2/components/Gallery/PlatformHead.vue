@@ -68,6 +68,7 @@ const props = defineProps<{
     virtualToggle: string;
     addVirtualSource: string;
     addVirtualGame: string;
+    mergeDuplicates: string;
   };
 }>();
 
@@ -81,6 +82,7 @@ defineEmits<{
   (e: "toggle-virtual"): void;
   (e: "add-virtual-source"): void;
   (e: "add-virtual-game"): void;
+  (e: "merge-duplicates"): void;
 }>();
 
 // A square icon sized per breakpoint (smaller on phones). Driving the size
@@ -258,6 +260,16 @@ const iconSize = computed(() => (xs.value ? 116 : 148));
         :aria-label="labels.addVirtualGame"
         :tooltip="labels.addVirtualGame"
         @click="$emit('add-virtual-game')"
+      />
+      <RBtn
+        v-if="canEdit"
+        variant="outlined"
+        surface
+        icon="mdi-call-merge"
+        rounded="circle"
+        :aria-label="labels.mergeDuplicates"
+        :tooltip="labels.mergeDuplicates"
+        @click="$emit('merge-duplicates')"
       />
       <RBtn
         v-if="canScan"

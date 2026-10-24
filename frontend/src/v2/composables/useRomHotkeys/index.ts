@@ -12,6 +12,7 @@
 import { useEventListener } from "@vueuse/core";
 import type { SimpleRom } from "@/stores/roms";
 import storePlaying from "@/stores/playing";
+import { hasOpenEscapable } from "@/v2/lib/overlays/RDialog/escapeStack";
 import { useGalleryNeighbors } from "@/v2/composables/useGalleryNeighbors";
 import { useGameActions } from "@/v2/composables/useGameActions";
 import { isEditable } from "@/v2/utils/editable";
@@ -25,6 +26,17 @@ export function useRomHotkeys(getRom: () => SimpleRom | null | undefined) {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (isEditable(e.target)) return;
     if (playingStore.playing) return;
+    // Don't steal keys while an overlay owns the keyboard: a dialog/menu on the
+    // escape stack, or the fullscreen screenshot carousel (which runs its own
+    // window-level Arrow nav between images). Without this, ArrowLeft/Right
+    // would step to the next game instead of the next screenshot.
+    if (hasOpenEscapable()) return;
+    if (
+      typeof document !== "undefined" &&
+      document.querySelector(".r-carousel--fullscreen")
+    ) {
+      return;
+    }
 
     const rom = getRom();
     if (!rom) return;

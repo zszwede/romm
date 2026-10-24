@@ -624,6 +624,20 @@ export function useGameActions(
     emitter?.emit("showMatchRomDialog", rom);
   }
 
+  // Open the multi-merge dialog seeded with this game's name, scoped to its
+  // platform, so the user can fold duplicate/version entries of the same game
+  // into one (the local copy is kept, virtual links fold in as mirrors).
+  function mergeVersions() {
+    const rom = getRom();
+    if (!rom) return;
+    emitter?.emit("showMultiMergeDialog", {
+      platformId: rom.platform_id,
+      search: rom.name ?? rom.fs_name_no_ext ?? "",
+    });
+  }
+  // Needs the merge/edit grant; merging is a server-side ROMS_WRITE action.
+  const canMerge = computed(() => Boolean(getRom()) && canEdit.value);
+
   // Clear this version's metadata match: removes all provider ids + metadata
   // (backend PUT ?unmatch_metadata=true), which also splits it out of its
   // sibling/version group (siblings are keyed on shared provider ids). Use it
@@ -872,6 +886,8 @@ export function useGameActions(
     refreshFiles,
     edit,
     match,
+    mergeVersions,
+    canMerge,
     unmatchRom,
     remove,
     isVirtual,

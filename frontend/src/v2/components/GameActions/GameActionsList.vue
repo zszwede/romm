@@ -128,6 +128,12 @@ function run(fn: () => void | Promise<void>) {
     @click="run(actions.unmatchRom)"
   />
   <RMenuItem
+    v-if="actions.canMerge.value"
+    :label="t('rom.merge-versions')"
+    icon="mdi-call-merge"
+    @click="run(actions.mergeVersions)"
+  />
+  <RMenuItem
     v-if="actions.canRefresh.value"
     :label="t('rom.refresh-metadata')"
     icon="mdi-refresh"

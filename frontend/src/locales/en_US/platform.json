@@ -1,6 +1,7 @@
 {
   "active-multi-select": "Active multi-select",
   "add-virtual-source": "Add archive.org source",
+  "merge-duplicates": "Merge duplicates",
   "adding-firmware": "Adding firmware to {platform}",
   "age-rating": "Age rating",
   "archive-org-urls": "archive.org URLs (one per line)",

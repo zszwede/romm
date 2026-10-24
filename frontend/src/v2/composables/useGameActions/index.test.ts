@@ -43,6 +43,15 @@ vi.mock("vue", async (importOriginal) => ({
 vi.mock("vue-i18n");
 vi.mock("vue-router", () => ({
   useRouter: () => ({ push }),
+  // `@/plugins/router` (imported transitively for ROUTES) builds a real router
+  // at module load, so the mock must provide these or the suite fails to import.
+  createRouter: () => ({
+    beforeEach: () => {},
+    afterEach: () => {},
+    beforeResolve: () => {},
+  }),
+  createWebHistory: () => ({}),
+  createMemoryHistory: () => ({}),
 }));
 vi.mock("@/composables/useFavoriteToggle", () => ({
   useFavoriteToggle: () => ({

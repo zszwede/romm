@@ -143,6 +143,7 @@ const headLabels = computed(() => ({
     : t("platform.show-virtual"),
   addVirtualSource: t("platform.add-virtual-source"),
   addVirtualGame: t("rom.add-virtual-game"),
+  mergeDuplicates: t("platform.merge-duplicates"),
 }));
 
 function onTabChange(next: string) {
@@ -388,6 +389,14 @@ function onAddVirtualGame() {
   emitter?.emit("showAddVirtualGameDialog", currentPlatform.value);
 }
 
+function onMergeDuplicates() {
+  if (!currentPlatform.value) return;
+  emitter?.emit("showMultiMergeDialog", {
+    platformId: currentPlatform.value.id,
+    search: "",
+  });
+}
+
 // Toggle virtual games on/off, persist per platform, and let the store
 // reload the grid with the new `virtual` filter.
 function onToggleVirtual() {
@@ -548,6 +557,7 @@ async function onDelete() {
         @toggle-virtual="onToggleVirtual"
         @add-virtual-source="onAddVirtualSource"
         @add-virtual-game="onAddVirtualGame"
+        @merge-duplicates="onMergeDuplicates"
       />
     </template>
   </GalleryShell>
@@ -580,6 +590,7 @@ async function onDelete() {
         @toggle-virtual="onToggleVirtual"
         @add-virtual-source="onAddVirtualSource"
         @add-virtual-game="onAddVirtualGame"
+        @merge-duplicates="onMergeDuplicates"
       />
     </template>
     <template v-if="currentPlatform">

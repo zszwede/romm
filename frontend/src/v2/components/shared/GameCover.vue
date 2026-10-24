@@ -180,7 +180,16 @@ watch(activeSrc, (src) => {
   // Seed from the session-seen set: a URL we've already bloomed once skips the
   // reveal so a recycled card doesn't re-flash it (and doesn't pay the blur).
   coverLoaded.value = !!src && revealedCoverSrcs.has(src);
-  naturalRatio.value = getCoverRatio({ url: src, romId: ratioRomId.value });
+  const cached = getCoverRatio({ url: src, romId: ratioRomId.value });
+  // On the single hero/detail cover (morphStatic), when we have no measured
+  // ratio for the new art yet, KEEP the previous ratio instead of dropping the
+  // box to the style default (tall) and then resizing again once the image
+  // decodes. Stepping left/right between covers of the same shape then doesn't
+  // visibly resize. The gallery keeps its reset-to-cached behaviour (its packer
+  // relies on the measured ratio), so it is unaffected.
+  if (cached != null || !props.morphStatic) {
+    naturalRatio.value = cached;
+  }
 });
 const onCoverLoad = () => {
   coverLoaded.value = true;

@@ -68,6 +68,10 @@ export type Events = {
   showUploadRomDialog: Platform | null;
   showAddPhysicalGameDialog: Platform | null;
   showAddVirtualGameDialog: Platform | null;
+  /** v2: opens MultiMergeDialog to search a platform's ROMs and merge
+   *  duplicate/version entries into one. `search` pre-fills the box (the
+   *  current game's name when opened from a game page). */
+  showMultiMergeDialog: { platformId: number | null; search?: string };
   showAddVirtualSourceDialog: Platform | null;
   showDeleteFirmwareDialog: FirmwareSchema[];
   addFirmwareDialog: null;
