@@ -23,6 +23,7 @@ import (
 	"github.com/zszwede/romm-go/internal/auth"
 	"github.com/zszwede/romm-go/internal/deviceauth"
 	"github.com/zszwede/romm-go/internal/metadata"
+	"github.com/zszwede/romm-go/internal/oidc"
 	"github.com/zszwede/romm-go/internal/scan"
 	"github.com/zszwede/romm-go/internal/store"
 	"github.com/zszwede/romm-go/internal/virtual"
@@ -91,6 +92,10 @@ type Deps struct {
 	WebRoot string
 	// AssetsRoot: directory for uploaded saves/states (ROMM_BASE_PATH/assets).
 	AssetsRoot string
+	// OIDC, when non-nil, enables the OpenID Connect login endpoints. OIDCUsers
+	// is the user store it provisions against (the *store.Store satisfies it).
+	OIDC      *oidc.Provider
+	OIDCUsers oidc.UserStore
 }
 
 type Server struct {
@@ -105,6 +110,8 @@ type Server struct {
 	assetsRoot  string
 	static      fs.FS
 	flows       *deviceauth.Store
+	oidc        *oidc.Provider
+	oidcUsers   oidc.UserStore
 	mux         *http.ServeMux
 }
 
@@ -119,6 +126,8 @@ func New(d Deps) *Server {
 		ach:        d.Achievements,
 		assetsRoot: d.AssetsRoot,
 		flows:      deviceauth.NewStore(),
+		oidc:       d.OIDC,
+		oidcUsers:  d.OIDCUsers,
 		mux:        http.NewServeMux(),
 	}
 	if d.ScanRoot != "" {
@@ -171,6 +180,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/auth/device/approve", s.deviceApprove)
 	s.mux.HandleFunc("POST /api/auth/device/deny", s.deviceDeny)
 	s.mux.HandleFunc("POST /api/auth/device/token", s.deviceToken)
+
+	// OpenID Connect login (authorization-code flow). Active only when an OIDC
+	// provider is configured; otherwise both return 404.
+	s.mux.HandleFunc("GET /api/auth/login/openid", s.oidcLogin)
+	s.mux.HandleFunc("GET /api/auth/oauth/openid", s.oidcCallback)
 
 	// Music playlists.
 	s.mux.HandleFunc("GET /api/music/playlists", s.listPlaylists)

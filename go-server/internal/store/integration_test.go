@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zszwede/romm-go/internal/oidc"
 	"github.com/zszwede/romm-go/internal/scan"
 )
 
@@ -165,4 +166,59 @@ func TestRegisterDeviceToken_Integration(t *testing.T) {
 		t.Fatalf("token rows = %d, want 2", tokenCount)
 	}
 	t.Logf("device+token write-back OK against live schema (user %d), rolling back", uid)
+}
+
+// TestOIDCUserProvision_Integration validates the OIDC user INSERT/UPDATE
+// against the real users schema inside an always-rolled-back transaction
+// (confirming avatar_path/role NOT-NULL columns and the oidc_* columns are
+// handled). Skipped unless DB creds set.
+func TestOIDCUserProvision_Integration(t *testing.T) {
+	host, pass := os.Getenv("DB_HOST"), os.Getenv("DB_PASSWD")
+	if host == "" || pass == "" {
+		t.Skip("DB_HOST/DB_PASSWD not set; skipping live schema test")
+	}
+	envOr := func(k, d string) string {
+		if v := os.Getenv(k); v != "" {
+			return v
+		}
+		return d
+	}
+	st, err := Open(host, envOr("DB_PORT", "3306"), envOr("DB_USER", "romm-user"), pass, envOr("DB_NAME", "romm"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+	tx, err := st.DB.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer tx.Rollback() // never persist
+
+	created, err := addOIDCUser(ctx, tx, oidc.NewUser{
+		Username:   "__gotest_oidc__",
+		Email:      "gotest-oidc@example.com",
+		Role:       oidc.RoleUser,
+		OIDCIssuer: "https://idp.example",
+		OIDCSub:    "gotest-sub-1",
+		Enabled:    true,
+	})
+	if err != nil {
+		t.Fatalf("addOIDCUser against live schema failed: %v", err)
+	}
+	if created == nil || created.ID == 0 || created.Role != oidc.RoleUser || !created.Enabled {
+		t.Fatalf("created user wrong: %+v", created)
+	}
+
+	newEmail := "gotest-oidc-new@example.com"
+	newRole := oidc.RoleAdmin
+	updated, err := updateOIDCUser(ctx, tx, created.ID, oidc.UserUpdates{Email: &newEmail, Role: &newRole})
+	if err != nil {
+		t.Fatalf("updateOIDCUser failed: %v", err)
+	}
+	if updated.Email != newEmail || updated.Role != oidc.RoleAdmin {
+		t.Fatalf("after update: %+v", updated)
+	}
+	t.Logf("OIDC user provision+update OK against live schema (id %d), rolling back", created.ID)
 }

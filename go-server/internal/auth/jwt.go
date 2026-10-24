@@ -7,6 +7,7 @@ package auth
 import (
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -62,4 +63,20 @@ func Verify(tokenString, secret string) (*Claims, error) {
 		scopes = strings.Fields(sc)
 	}
 	return &Claims{Username: sub, Scopes: scopes}, nil
+}
+
+// Sign mints a RomM access token (HS256) for username with the given scopes and
+// TTL. It is the exact shape Verify accepts, so e.g. an OIDC login can hand the
+// browser a token the rest of the API already trusts.
+func Sign(secret, username string, scopes []string, ttl time.Duration) (string, error) {
+	if secret == "" || username == "" {
+		return "", ErrInvalid
+	}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub":    username,
+		"iss":    "romm:oauth",
+		"type":   "access",
+		"scopes": strings.Join(scopes, " "),
+		"exp":    time.Now().Add(ttl).Unix(),
+	}).SignedString([]byte(secret))
 }

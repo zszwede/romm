@@ -13,6 +13,7 @@ import (
 	"github.com/zszwede/romm-go/internal/downloadsvc"
 	"github.com/zszwede/romm-go/internal/httpapi"
 	"github.com/zszwede/romm-go/internal/metadata"
+	"github.com/zszwede/romm-go/internal/oidc"
 	"github.com/zszwede/romm-go/internal/store"
 	"github.com/zszwede/romm-go/internal/virtual"
 	"github.com/zszwede/romm-go/internal/worker"
@@ -39,6 +40,27 @@ func main() {
 	var ach httpapi.AchievementService
 	if cfg.RAAPIKey != "" {
 		ach = achievements.NewClient(cfg.RAAPIKey)
+	}
+
+	var oidcProvider *oidc.Provider
+	var oidcUsers oidc.UserStore
+	if cfg.OIDC.Enabled {
+		oidcProvider = oidc.NewProvider(oidc.Config{
+			Enabled:           true,
+			AllowRegistration: cfg.OIDC.AllowRegistration,
+			ClientID:          cfg.OIDC.ClientID,
+			ClientSecret:      cfg.OIDC.ClientSecret,
+			RedirectURI:       cfg.OIDC.RedirectURI,
+			MetadataURL:       cfg.OIDC.MetadataURL,
+			ProviderURL:       cfg.OIDC.ProviderURL,
+			UsernameAttribute: cfg.OIDC.UsernameAttribute,
+			ClaimRoles:        cfg.OIDC.ClaimRoles,
+			RoleViewer:        cfg.OIDC.RoleViewer,
+			RoleEditor:        cfg.OIDC.RoleEditor,
+			RoleAdmin:         cfg.OIDC.RoleAdmin,
+		})
+		oidcUsers = st
+		log.Printf("OIDC login enabled (client %s)", cfg.OIDC.ClientID)
 	}
 
 	var virt httpapi.VirtualService
@@ -68,6 +90,8 @@ func main() {
 			Achievements: ach,
 			WebRoot:      cfg.WebRoot,
 			AssetsRoot:   filepath.Join(cfg.BasePath, "assets"),
+			OIDC:         oidcProvider,
+			OIDCUsers:    oidcUsers,
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
