@@ -48,8 +48,9 @@ against pve2 + IGDB):
    streaming/netplay, OIDC/device-auth, music playlists, achievements,
    in-browser ROM patching.
 
-The frontend stays the built Vue SPA, to be embedded into `web/static` (copied
-from the existing image) in place of the current placeholder.
+The frontend is the built Vue SPA: served from `ROMM_WEB_ROOT` (the real dist +
+player assets, as the Python image ships them) with an embedded placeholder as
+the standalone fallback. Verified serving the real `/var/www/html`.
 
 ## Layout
 `cmd/romm` (main) · `internal/config` · `internal/store` (database/sql) ·
