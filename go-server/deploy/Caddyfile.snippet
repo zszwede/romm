@@ -1,0 +1,20 @@
+# Caddy vhost for the Go RomM server (on ~/llm-stack/caddy/Caddyfile, the
+# ai-monster host). Two ways to use it:
+#
+# 1) Parallel (safe) — reach the Go server at a NEW hostname while the Python
+#    container keeps serving romm.ai-monster.local unchanged:
+#
+#        romm-go.ai-monster.local {
+#            reverse_proxy retro.local:8099
+#        }
+#
+# 2) Cutover — once you accept the feature trade-off (the Go server omits save/
+#    state sync, streaming/netplay, OIDC, music, achievements, ROM patching),
+#    point the real hostname at it:
+#
+#        romm.ai-monster.local {
+#            reverse_proxy retro.local:8099   # was the romm container :80
+#        }
+#
+# Then: reload Caddy (caddy reload / systemctl reload caddy). Roll back by
+# restoring the previous reverse_proxy target.

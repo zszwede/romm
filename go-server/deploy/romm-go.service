@@ -1,0 +1,30 @@
+[Unit]
+# User systemd unit for the Go RomM server. Install to
+# ~/.config/systemd/user/romm-go.service, `systemctl --user daemon-reload`,
+# then `systemctl --user enable --now romm-go`. Runs alongside the container
+# until you cut Caddy over to it.
+Description=RomM (Go rewrite) server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Build once:  (cd /home/xiam/romm-fork/go-server && go build -o bin/romm-go ./cmd/romm)
+ExecStart=/home/xiam/romm-fork/go-server/bin/romm-go
+Restart=on-failure
+RestartSec=3
+# --- environment (fill the secrets; same values the container uses) ---
+Environment=ROMM_GO_ADDR=:8099
+Environment=DB_HOST=192.168.1.201
+Environment=DB_PORT=3306
+Environment=DB_USER=romm-user
+Environment=DB_NAME=romm
+Environment=ROMM_BASE_PATH=/media/8TB/Retro/.romm
+Environment=ROMM_WEB_ROOT=/home/xiam/romm/go-webroot
+# Environment=DB_PASSWD=...
+# Environment=ROMM_AUTH_SECRET_KEY=...
+# Environment=IGDB_CLIENT_ID=...   IGDB_CLIENT_SECRET=...
+# In-process downloads (optional): Environment=ROMM_DOWNLOADER_CONFIG=/home/xiam/RommDownloader/config.yaml
+# Secrets are better kept out of the unit: EnvironmentFile=/home/xiam/romm/go-server.env
+
+[Install]
+WantedBy=default.target
