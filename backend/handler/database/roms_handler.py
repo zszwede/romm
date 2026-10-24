@@ -1766,9 +1766,12 @@ class DBRomsHandler(DBBaseHandler):
             )
 
             # Create a subquery that identifies the primary ROM in each group.
-            # Priority order: visible to this user, then is_main_sibling (desc),
-            # then a full release over a pre-release, then the configured
-            # region priority, then fs_name_no_ext (asc) as a stable tiebreak.
+            # Priority order: visible to this user, then a physical copy present
+            # on disk (so a game you already own represents the group instead of
+            # a downloadable virtual version — you don't re-download it by
+            # mistake), then is_main_sibling (desc), then a full release over a
+            # pre-release, then the configured region priority, then
+            # fs_name_no_ext (asc) as a stable tiebreak.
             # Materialize only the columns the dedup window needs (not all of
             # Rom, whose JSON metadata blobs make the derived table huge), and
             # drop the carried-over ORDER BY the window doesn't use.
@@ -1777,6 +1780,8 @@ class DBRomsHandler(DBBaseHandler):
                 .with_only_columns(
                     Rom.id,
                     Rom.fs_name_no_ext,
+                    Rom.is_virtual,
+                    Rom.missing_from_fs,
                     _prerelease_rank().label("prerelease_rank"),
                     _region_rank().label("region_rank"),
                     Rom.platform_id,
@@ -1847,7 +1852,21 @@ class DBRomsHandler(DBBaseHandler):
 
             # Only id, the row number and the group sort key flow downstream;
             # wider columns here spill the window's temp-table sort to disk.
+            # A real file on disk (not virtual, not missing) ranks ahead of a
+            # virtual or missing sibling, so the owned copy is the group's face.
+            physical_present_order = case(
+                (
+                    and_(
+                        base_subquery.c.is_virtual == false(),
+                        base_subquery.c.missing_from_fs == false(),
+                    ),
+                    0,
+                ),
+                else_=1,
+            ).asc()
+
             window_order = [
+                physical_present_order,
                 is_main_sibling_order,
                 base_subquery.c.prerelease_rank.asc(),
                 base_subquery.c.region_rank.asc(),
@@ -3967,6 +3986,9 @@ class DBRomsHandler(DBBaseHandler):
         filters: dict[str, list[Any]] = {
             "player_counts": sorted(player_counts),
             "platforms": sorted(platforms),
+            # Populated by the caller from roms.source_hosts (not the facets
+            # mirror, which has no host column); defaulted so the key is present.
+            "hosts": [],
         }
         for name, column_texts in zip(_FILTER_JSON_COLUMNS, texts, strict=True):
             items: set[str] = set()
@@ -3975,6 +3997,24 @@ class DBRomsHandler(DBBaseHandler):
                     items.update(value)
             filters[name] = sorted(items)
         return typing_cast(RomFiltersDict, filters)
+
+    def _collect_host_values(
+        self, session: Session, ids_subq: Any | None = None
+    ) -> list[str]:
+        """Distinct download hosts over `roms.source_hosts` (optionally limited
+        to an id subquery), for the gallery's host filter dropdown."""
+        stmt = select(Rom.source_hosts).where(Rom.source_hosts.isnot(None))
+        if ids_subq is not None:
+            stmt = stmt.where(Rom.id.in_(ids_subq))
+        hosts: set[str] = set()
+        result = session.execute(
+            stmt, execution_options={"yield_per": _FILTER_VALUES_BATCH_SIZE}
+        )
+        for (value,) in result:
+            # CustomJSON yields a parsed list; guard against stray scalars.
+            if isinstance(value, list):
+                hosts.update(h for h in value if h)
+        return sorted(hosts)
 
     @begin_session
     def refresh_identity_key_statistics(
@@ -4026,6 +4066,7 @@ class DBRomsHandler(DBBaseHandler):
         statement = _FILTER_VALUES_SELECT.where(RomFacets.rom_id.in_(ids_subq))
 
         result = self._collect_filter_values(session, statement)
+        result["hosts"] = self._collect_host_values(session, ids_subq)
         if redis_key is not None and version is not None:
             _store_versioned_cache(redis_key, version, result)
         return result
@@ -4038,4 +4079,6 @@ class DBRomsHandler(DBBaseHandler):
         """
         Returns all filter values across all ROM metadata
         """
-        return self._collect_filter_values(session, _FILTER_VALUES_SELECT)
+        result = self._collect_filter_values(session, _FILTER_VALUES_SELECT)
+        result["hosts"] = self._collect_host_values(session, None)
+        return result

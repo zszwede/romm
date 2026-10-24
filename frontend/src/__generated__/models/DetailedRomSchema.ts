@@ -111,7 +111,10 @@ export type DetailedRomSchema = {
     is_physical: boolean;
     is_virtual: boolean;
     source_url: (string | null);
+    source_hosts?: (Array<string> | null);
+    download_status?: (string | null);
     source_urls: Array<string>;
+    virtual_contents?: (Array<Record<string, any>> | null);
     has_file_on_disk: boolean;
     upc: (string | null);
     has_notes: boolean;

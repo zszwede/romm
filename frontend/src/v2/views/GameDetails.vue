@@ -36,6 +36,7 @@ import { useIsAlive } from "@/v2/composables/useIsAlive";
 import { usePageTitle } from "@/v2/composables/usePageTitle";
 import { useRightStickScroll } from "@/v2/composables/useRightStickScroll";
 import { useRomScanRefresh } from "@/v2/composables/useRomScanRefresh";
+import { useRomHotkeys } from "@/v2/composables/useRomHotkeys";
 import { romIdFromRoute, useRouteRom } from "@/v2/composables/useRouteRom";
 import { useSnackbar } from "@/v2/composables/useSnackbar";
 import { useWebpSupport } from "@/v2/composables/useWebpSupport";
@@ -48,6 +49,9 @@ const romsStore = storeRoms();
 const authStore = storeAuth();
 const streamingStore = useStreamingStore();
 const currentRom = useRouteRom();
+// Keyboard shortcuts for the game page: ←/→ step games, m matches, d flags a
+// virtual game for download, Del deletes + excludes a virtual game.
+useRomHotkeys(() => currentRom.value);
 const { toWebp } = useWebpSupport();
 const { showRecommendations } = useUISettings();
 const { locale, t } = useI18n();

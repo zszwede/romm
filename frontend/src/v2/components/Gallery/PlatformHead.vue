@@ -67,6 +67,7 @@ const props = defineProps<{
     /** Dynamic: "Show virtual games" / "Hide virtual games". */
     virtualToggle: string;
     addVirtualSource: string;
+    addVirtualGame: string;
   };
 }>();
 
@@ -79,6 +80,7 @@ defineEmits<{
   (e: "add-physical"): void;
   (e: "toggle-virtual"): void;
   (e: "add-virtual-source"): void;
+  (e: "add-virtual-game"): void;
 }>();
 
 // A square icon sized per breakpoint (smaller on phones). Driving the size
@@ -246,6 +248,16 @@ const iconSize = computed(() => (xs.value ? 116 : 148));
         :aria-label="labels.addVirtualSource"
         :tooltip="labels.addVirtualSource"
         @click="$emit('add-virtual-source')"
+      />
+      <RBtn
+        v-if="canAddVirtual"
+        variant="outlined"
+        surface
+        icon="mdi-cloud-plus-outline"
+        rounded="circle"
+        :aria-label="labels.addVirtualGame"
+        :tooltip="labels.addVirtualGame"
+        @click="$emit('add-virtual-game')"
       />
       <RBtn
         v-if="canScan"

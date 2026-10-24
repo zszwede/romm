@@ -430,6 +430,34 @@ class ConvertoConfig:
     platform_formats: dict[str, str] = dataclasses.field(default_factory=dict)
 
 
+@dataclasses.dataclass
+class DownloadsConfig:
+    """Server-wide settings for the virtual-ROM download workflow.
+
+    Secrets (host account tokens, the callback shared secret) live here, not per
+    user: there is one set of host accounts and one external merge service for
+    the whole server. Admins edit it through the Downloads settings page; it is
+    never exposed to non-admin callers. The per-user *preferred host order* is
+    NOT here — that lives in each user's ui_settings.
+    """
+
+    # Base URL of the external merge service (RommDownloader), e.g.
+    # "http://rommdownloader:8090". RomM POSTs jobs to <url>/api/v1/jobs. Empty
+    # disables dispatch.
+    merge_service_url: str = ""
+    # Bearer token RomM sends to the merge service's API (its ROMMDL_API_TOKEN).
+    service_api_token: str = ""
+    # Shared secret the merge service must present (header X-Callback-Token) when
+    # calling RomM back. Empty disables the callback/queue endpoints.
+    callback_token: str = ""
+    # host -> credential/token used to fetch from that host (e.g.
+    # {"1fichier.com": "apikey...", "archive.org": "access:secret"}). Passed to
+    # the merge service on dispatch.
+    host_tokens: dict[str, str] = dataclasses.field(default_factory=dict)
+    # Server default preferred-host order; a user's ui_settings order wins.
+    default_host_order: list[str] = dataclasses.field(default_factory=list)
+
+
 # The smallest value each integer converto.* setting accepts.
 CONVERTO_INT_MINIMUMS: Final[dict[str, int]] = {
     "cache_ttl_hours": 1,
@@ -543,6 +571,7 @@ class Config:
     STREAMING_ENABLED: bool
     STREAMING_CONTAINERS: list[StreamingContainer]
     CONVERTO: ConvertoConfig
+    DOWNLOADS: DownloadsConfig
 
     def __init__(self, **entries: Any) -> None:
         self.__dict__.update(entries)
@@ -923,6 +952,12 @@ class ConfigManager:
                 **{
                     key: get_nested(self._raw_config, f"converto.{key}", default)
                     for key, default in dataclasses.asdict(ConvertoConfig()).items()
+                }
+            ),
+            DOWNLOADS=DownloadsConfig(
+                **{
+                    key: get_nested(self._raw_config, f"downloads.{key}", default)
+                    for key, default in dataclasses.asdict(DownloadsConfig()).items()
                 }
             ),
             STRUCTURE_TEMPLATES=get_nested(
@@ -1517,6 +1552,7 @@ class ConfigManager:
                 },
             },
             "converto": dataclasses.asdict(self.config.CONVERTO),
+            "downloads": dataclasses.asdict(self.config.DOWNLOADS),
         }
 
         # The streaming section isn't editable at runtime, but it must survive
@@ -1657,6 +1693,11 @@ class ConfigManager:
     def update_converto_settings(self, converto: ConvertoConfig) -> None:
         """Replace the whole converto.* section and persist it to config.yml."""
         self.config.CONVERTO = converto
+        self._update_config_file()
+
+    def update_downloads_settings(self, downloads: DownloadsConfig) -> None:
+        """Replace the whole downloads.* section and persist it to config.yml."""
+        self.config.DOWNLOADS = downloads
         self._update_config_file()
 
 

@@ -82,6 +82,36 @@ class VirtualGame:
     name: str  # becomes the rom's fs_name
     source_url: str  # direct archive.org download URL
     size: int | None = None
+    # Full downloadable set (base + updates + DLC) for a merge service; each item
+    # is {category, name, url, host, version, size}. Empty for a plain single
+    # file (the base game is then just `source_url`).
+    contents: tuple = ()
+
+
+def host_of(url: str | None) -> str | None:
+    """The bare host of a download URL, normalised for grouping/filtering:
+    lowercased with a leading ``www.`` stripped (``https://www.1fichier.com/?x``
+    -> ``1fichier.com``). Returns None for a blank or unparseable URL."""
+    if not url:
+        return None
+    try:
+        netloc = urlparse(url if "://" in url else f"https://{url}").netloc.lower()
+    except ValueError:
+        return None
+    netloc = netloc.rsplit("@", 1)[-1].split(":", 1)[0]  # drop creds + port
+    if netloc.startswith("www."):
+        netloc = netloc[4:]
+    return netloc or None
+
+
+def hosts_of(urls) -> list[str]:
+    """Distinct, order-preserving hosts for a set of URLs."""
+    out: list[str] = []
+    for url in urls:
+        host = host_of(url)
+        if host and host not in out:
+            out.append(host)
+    return out
 
 
 @dataclass(frozen=True)

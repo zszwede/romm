@@ -57,9 +57,17 @@ export type Events = {
    * event; v1 keeps the single-rom contract. */
   showRefreshMetadataDialogBulk: SimpleRom[];
   showCopyDownloadLinkDialog: string;
+  /** v2: a virtual ROM whose sources are non-archive file-host pages; opens
+   *  BrowserCaptureDialog to display each page (captcha) and capture the final
+   *  file URL. `auto` marks hosts the server can resolve on its own. */
+  showBrowserCaptureDialog: {
+    rom: SimpleRom;
+    pages: { url: string; auto?: boolean }[];
+  };
   showDeleteRomDialog: SimpleRom[];
   showUploadRomDialog: Platform | null;
   showAddPhysicalGameDialog: Platform | null;
+  showAddVirtualGameDialog: Platform | null;
   showAddVirtualSourceDialog: Platform | null;
   showDeleteFirmwareDialog: FirmwareSchema[];
   addFirmwareDialog: null;

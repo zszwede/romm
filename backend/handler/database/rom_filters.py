@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.orm import QueryableAttribute
 
 from logger.logger import log
-from models.rom import RomFacets
+from models.rom import Rom, RomFacets
 
 
 class FilterKind(StrEnum):
@@ -58,6 +58,10 @@ ROM_FILTER_SPECS: tuple[RomFilterSpec, ...] = (
     RomFilterSpec("player_counts", FilterKind.SCALAR_IN, RomFacets.player_count),
     RomFilterSpec("metadata_providers", FilterKind.PROVIDER_IDS),
     RomFilterSpec("tags", FilterKind.JSON_ARRAY, RomFacets.tags),
+    # `hosts` matches the download host(s) a virtual game is served from. Unlike
+    # the others it reads `roms.source_hosts` directly (not the facets mirror,
+    # which carries no host column); the shared facets join stays harmless.
+    RomFilterSpec("hosts", FilterKind.JSON_ARRAY, Rom.source_hosts),
 )
 
 # `statuses` is absent above on purpose: it matches against RomUser, after the
@@ -78,6 +82,7 @@ class RomFiltersDict(TypedDict):
     regions: list[str]
     languages: list[str]
     tags: list[str]
+    hosts: list[str]
     platforms: list[int]
 
 
@@ -285,6 +290,12 @@ class RomFilterParams(BaseModel):
             description="Associated custom tag (parsed from the filename, e.g. Proto, Beta, Demo). Multiple values are allowed by repeating the parameter, and results that match any of the values will be returned."
         ),
     ] = None
+    hosts: Annotated[
+        list[str] | None,
+        Field(
+            description="Download host a virtual game is served from (e.g. 1fichier.com, archive.org). Multiple values are allowed by repeating the parameter, and results that match any of the values will be returned."
+        ),
+    ] = None
     genres_logic: Annotated[
         str,
         Field(
@@ -361,6 +372,12 @@ class RomFilterParams(BaseModel):
         str,
         Field(
             description="Logic operator for tags filter: 'any' (OR), 'all' (AND) or 'none' (NOT)."
+        ),
+    ] = "any"
+    hosts_logic: Annotated[
+        str,
+        Field(
+            description="Logic operator for hosts filter: 'any' (OR), 'all' (AND) or 'none' (NOT)."
         ),
     ] = "any"
     hltb_main_story_min: Annotated[

@@ -2,10 +2,12 @@ import type { Emitter } from "mitt";
 import { computed, inject, type InjectionKey, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
+import { ROUTES } from "@/plugins/router";
 import type { RomUserData, RomUserStatus } from "@/__generated__";
 import { useFavoriteToggle } from "@/composables/useFavoriteToggle";
 import { useUISettings } from "@/composables/useUISettings";
 import romApi from "@/services/api/rom";
+import type { UpdateRom } from "@/services/api/rom";
 import storeAuth from "@/stores/auth";
 import storeHeartbeat from "@/stores/heartbeat";
 import storeRoms from "@/stores/roms";
@@ -436,8 +438,17 @@ export function useGameActions(
     const rom = getRom();
     if (!rom) return;
     try {
-      await romApi.downloadVirtualRom({ romId: rom.id });
-      snackbar.success(`Downloading ${rom.name ?? rom.fs_name} from archive.org…`, {
+      const { data } = await romApi.downloadVirtualRom({ romId: rom.id });
+      // Every source needs a captcha/browser check: hand the pages to the
+      // capture dialog so the user can solve it and paste the final file URL.
+      if (data.status === "browser_required") {
+        emitter?.emit("showBrowserCaptureDialog", {
+          rom,
+          pages: data.pages ?? [],
+        });
+        return;
+      }
+      snackbar.success(`Downloading ${rom.name ?? rom.fs_name}…`, {
         icon: "mdi-cloud-download",
       });
     } catch {
@@ -613,10 +624,172 @@ export function useGameActions(
     emitter?.emit("showMatchRomDialog", rom);
   }
 
+  // Clear this version's metadata match: removes all provider ids + metadata
+  // (backend PUT ?unmatch_metadata=true), which also splits it out of its
+  // sibling/version group (siblings are keyed on shared provider ids). Use it
+  // when two different games were wrongly grouped as versions of one; then
+  // Match (above) to re-identify the split-off version correctly.
+  async function unmatchRom() {
+    const rom = getRom();
+    if (!rom) return;
+    const ok = await confirm({
+      title: t("rom.unmatch-rom"),
+      body: t("rom.unmatch-confirm", { name: rom.name ?? rom.fs_name }),
+      confirmText: t("rom.unmatch-rom"),
+      tone: "warning",
+    });
+    if (!ok) return;
+    try {
+      const { data } = await romApi.updateRom({
+        rom: rom as unknown as UpdateRom,
+        unmatch: true,
+      });
+      romsStore.cacheDetailedRom(data);
+      syncCachedRom(data);
+      snackbar.success(t("rom.unmatch-success"), {
+        icon: "mdi-link-variant-off",
+      });
+    } catch {
+      snackbar.error(t("rom.unmatch-failed"), { icon: "mdi-close-circle" });
+    }
+  }
+
   function remove() {
     const rom = getRom();
     if (!rom) return;
     emitter?.emit("showDeleteRomDialog", [rom]);
+  }
+
+  // Only virtual games take part in the download workflow.
+  const isVirtual = computed(() => Boolean(getRom()?.is_virtual));
+  // Delete + exclude (the `Del` hotkey) is destructive, so it needs the same
+  // grant as a normal delete, and only ever applies to a virtual row.
+  const canExclude = computed(() => isVirtual.value && canDelete.value);
+
+  // A dead base link: the backend confirmed (via the 1fichier availability
+  // check) the base file no longer exists and pruned it from the DB.
+  type DeadLink = { name?: string; url?: string; host?: string; version?: string };
+  type BaseUnavailableDetail = {
+    error: "base_unavailable";
+    message: string;
+    dead: DeadLink[];
+    alternatives: DeadLink[];
+  };
+
+  function baseUnavailableDetail(err: unknown): BaseUnavailableDetail | null {
+    const detail = (err as { response?: { data?: { detail?: unknown } } })
+      ?.response?.data?.detail;
+    if (
+      detail &&
+      typeof detail === "object" &&
+      (detail as { error?: string }).error === "base_unavailable"
+    ) {
+      return detail as BaseUnavailableDetail;
+    }
+    return null;
+  }
+
+  /** Handle a dead-base dispatch error: the base was already removed from the
+   *  DB, so offer any surviving source (re-dispatch picks it automatically) or
+   *  let the user resign. Returns true if it handled a base_unavailable error. */
+  async function handleBaseUnavailable(
+    rom: SimpleRom,
+    err: unknown,
+  ): Promise<boolean> {
+    const detail = baseUnavailableDetail(err);
+    if (!detail) return false;
+    const dead = detail.dead.map((d) => d.name || d.url).join(", ");
+    if (detail.alternatives.length === 0) {
+      // Nothing left to download — the user can only resign.
+      snackbar.error(
+        `Base file unavailable (${dead}) and removed. No other source — can't download.`,
+        { icon: "mdi-close-circle" },
+      );
+      return true;
+    }
+    const alt = detail.alternatives[0];
+    const ok = await confirm({
+      title: "Base file unavailable",
+      body:
+        `The base file is no longer available (${dead}) and has been removed. ` +
+        `An alternative source is available${alt.host ? ` on ${alt.host}` : ""}. Use it?`,
+      confirmText: "Use alternative",
+      cancelText: "Cancel",
+    });
+    if (!ok) {
+      snackbar.info("Download cancelled.", { icon: "mdi-cancel" });
+      return true;
+    }
+    try {
+      // Dead base already pruned; a plain re-dispatch selects a surviving base.
+      const { data } = await romApi.dispatchVirtualRom({ romId: rom.id });
+      rom.download_status = data.status;
+      syncCachedRom(rom);
+      snackbar.success(t("rom.download-dispatched"), { icon: "mdi-cloud-upload" });
+    } catch (retryErr) {
+      if (!(await handleBaseUnavailable(rom, retryErr))) {
+        snackbar.error(t("rom.download-dispatch-failed"), {
+          icon: "mdi-close-circle",
+        });
+      }
+    }
+    return true;
+  }
+
+  /** Flag a virtual game as wanted (the `D` hotkey). */
+  async function markDownload() {
+    const rom = getRom();
+    if (!rom || !rom.is_virtual) return;
+    try {
+      const { data } = await romApi.markVirtualRomDownload({ romId: rom.id });
+      rom.download_status = data.status;
+      syncCachedRom(rom);
+      snackbar.success(t("rom.marked-for-download"), {
+        icon: "mdi-download-outline",
+      });
+    } catch (err) {
+      if (await handleBaseUnavailable(rom, err)) return;
+      snackbar.error(t("rom.mark-download-failed"), { icon: "mdi-close-circle" });
+    }
+  }
+
+  /** Hand a virtual game's URL set to the merge service now. */
+  async function dispatchDownload() {
+    const rom = getRom();
+    if (!rom || !rom.is_virtual) return;
+    try {
+      const { data } = await romApi.dispatchVirtualRom({ romId: rom.id });
+      rom.download_status = data.status;
+      syncCachedRom(rom);
+      snackbar.success(t("rom.download-dispatched"), { icon: "mdi-cloud-upload" });
+    } catch (err) {
+      if (await handleBaseUnavailable(rom, err)) return;
+      snackbar.error(t("rom.download-dispatch-failed"), {
+        icon: "mdi-close-circle",
+      });
+    }
+  }
+
+  /** Delete a virtual game AND exclude it so re-imports never bring it back
+   *  (the `Del` hotkey). Confirms first; no-op on a physical game. */
+  async function excludeRom() {
+    const rom = getRom();
+    if (!rom || !rom.is_virtual) return;
+    const ok = await confirm({
+      title: t("rom.confirm-exclude-title"),
+      body: t("rom.confirm-exclude-body", { name: rom.name ?? rom.fs_name }),
+      confirmText: t("common.delete"),
+      tone: "danger",
+    });
+    if (!ok) return;
+    try {
+      await romApi.excludeVirtualRom({ romId: rom.id });
+      snackbar.success(t("rom.excluded"), { icon: "mdi-delete-sweep" });
+      romsStore.remove([rom]);
+      if (router.currentRoute.value.name === ROUTES.ROM) router.back();
+    } catch {
+      snackbar.error(t("rom.exclude-failed"), { icon: "mdi-close-circle" });
+    }
   }
 
   /** Requires roms.user.write, the scope the backend checks. */
@@ -699,7 +872,13 @@ export function useGameActions(
     refreshFiles,
     edit,
     match,
+    unmatchRom,
     remove,
+    isVirtual,
+    canExclude,
+    markDownload,
+    dispatchDownload,
+    excludeRom,
     removeFromContinuePlaying,
   };
 }

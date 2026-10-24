@@ -215,6 +215,19 @@ class RomFileCategory(enum.StrEnum):
     SCREENSHOT = "screenshot"
 
 
+class DownloadStatus(enum.StrEnum):
+    """Where a virtual game sits in the download pipeline. Absence (NULL) means
+    nothing was requested; `WANTED` is a user flag (the `D` hotkey) that a later
+    dispatch picks up; `QUEUED`/`RUNNING` mean a merge service is working on it;
+    `DONE`/`FAILED` are terminal."""
+
+    WANTED = "wanted"
+    QUEUED = "queued"
+    RUNNING = "running"
+    DONE = "done"
+    FAILED = "failed"
+
+
 class SaveTargetLayout(enum.StrEnum):
     FOLDER_EXACT = "folder-exact"
     FOLDER_PREFIX = "folder-prefix"
@@ -1055,6 +1068,18 @@ class Rom(BaseModel):
     # game; the DB FK cascades on rom delete, so this is read-only here.
     virtual_mirrors: Mapped[list[VirtualRomMirror]] = relationship(
         "VirtualRomMirror", lazy="selectin", viewonly=True
+    )
+    # The full downloadable set for this game: base game + updates + DLC, each a
+    # dict {category, name, url, host, version, size}. One Rom is still one game;
+    # this is what a merge service fetches and combines into a single file.
+    virtual_contents: Mapped[list | None] = mapped_column(CustomJSON(), default=None)
+    # Distinct hosts this game can be fetched from (e.g. ["1fichier.com",
+    # "archive.org"]), derived from source URLs + contents so the gallery can
+    # filter/facet by host without parsing URLs at query time.
+    source_hosts: Mapped[list | None] = mapped_column(CustomJSON(), default=None)
+    # Download-pipeline state (DownloadStatus); NULL means nothing requested.
+    download_status: Mapped[str | None] = mapped_column(
+        String(length=16), default=None
     )
 
     platform_id: Mapped[int] = mapped_column(

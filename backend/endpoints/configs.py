@@ -15,6 +15,7 @@ from config.config_manager import (
     VALID_GAMELIST_THUMBNAIL_TYPES,
     VALID_SCAN_PRIORITY_SOURCES,
     ConvertoConfig,
+    DownloadsConfig,
     ExclusionType,
     MetadataMediaType,
 )
@@ -134,6 +135,17 @@ class ConvertoSettingsPayload(BaseModel):
     @classmethod
     def validate_platform_formats(cls, value: dict[str, str]) -> dict[str, str]:
         return normalize_platform_formats(value)
+
+
+class DownloadsSettingsPayload(BaseModel):
+    """Runtime-editable downloads.* settings (virtual-ROM download workflow).
+    Holds secrets (host tokens, callback secret), so only admins read/write it."""
+
+    merge_service_url: str = ""
+    service_api_token: str = ""
+    callback_token: str = ""
+    host_tokens: dict[str, str] = Field(default_factory=dict)
+    default_host_order: list[str] = Field(default_factory=list)
 
 
 @router.get("")
@@ -385,3 +397,32 @@ async def update_converto_settings(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=exc.message
         ) from exc
     _record_config(request, "converto_settings", "update")
+
+
+@protected_route(router.get, "/downloads_settings", [Scope.PLATFORMS_WRITE])
+def get_downloads_settings(request: Request) -> DownloadsSettingsPayload:
+    """The downloads.* settings (admin only — carries host tokens)."""
+    d = cm.get_config().DOWNLOADS
+    return DownloadsSettingsPayload(
+        merge_service_url=d.merge_service_url,
+        service_api_token=d.service_api_token,
+        callback_token=d.callback_token,
+        host_tokens=dict(d.host_tokens),
+        default_host_order=list(d.default_host_order),
+    )
+
+
+@protected_route(router.put, "/downloads_settings", [Scope.PLATFORMS_WRITE])
+async def update_downloads_settings(
+    request: Request, payload: DownloadsSettingsPayload
+) -> None:
+    """Update the downloads.* settings (merge service URL, callback secret,
+    per-host tokens and the server default host order)."""
+    try:
+        cm.update_downloads_settings(DownloadsConfig(**payload.model_dump()))
+    except ConfigNotWritableException as exc:
+        log.critical(exc.message)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=exc.message
+        ) from exc
+    _record_config(request, "downloads_settings", "update")

@@ -41,6 +41,7 @@ import MediaShelf from "@/v2/components/GameDetails/MediaShelf.vue";
 import PlayerCountBadge from "@/v2/components/GameDetails/PlayerCountBadge.vue";
 import RelatedGamesGrid from "@/v2/components/GameDetails/RelatedGamesGrid.vue";
 import SimilarGamesGrid from "@/v2/components/GameDetails/SimilarGamesGrid.vue";
+import ContentsCard from "@/v2/components/GameDetails/ContentsCard.vue";
 import SourcesCard from "@/v2/components/GameDetails/SourcesCard.vue";
 import { PROVIDERS, providerId } from "@/v2/components/GameDetails/providers";
 import { usePinnedMedia } from "@/v2/composables/usePinnedMedia";
@@ -199,6 +200,10 @@ const coverSource = computed(() => {
   <section class="overview-tab">
     <!-- 1. Summary -->
     <p v-if="summary" class="overview-tab__summary">{{ summary }}</p>
+
+    <!-- The downloadable bundle (base + updates + DLC, multi-part aware) for a
+         virtual game. Renders itself only when virtual_contents is set. -->
+    <ContentsCard :rom="rom" />
 
     <!-- Download sources: archive.org primary + mirrors (virtual games, or a
          local file that absorbed mirrors via a merge). Renders itself only

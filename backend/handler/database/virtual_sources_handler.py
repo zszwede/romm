@@ -8,6 +8,7 @@ from decorators.database import INJECTED_SESSION, begin_session
 from models.base import utc_now
 from models.collection import CollectionRom
 from models.rom import Rom
+from models.virtual_exclusion import VirtualExclusion
 from models.virtual_rom_mirror import VirtualRomMirror
 from models.virtual_rom_source import VirtualRomSource
 
@@ -267,3 +268,68 @@ class DBVirtualSourcesHandler(DBBaseHandler):
         session.flush()
         session.expire(keeper)
         return session.scalar(select(Rom).filter_by(id=keeper_id).limit(1))
+
+    @begin_session
+    def add_exclusion(
+        self, platform_id: int, name: str, session: Session = INJECTED_SESSION
+    ) -> bool:
+        """Record a (platform, name) so a future import won't recreate it.
+        Returns False if it was already excluded."""
+        exists = session.scalar(
+            select(VirtualExclusion.id)
+            .filter_by(platform_id=platform_id, name=name)
+            .limit(1)
+        )
+        if exists is not None:
+            return False
+        session.add(VirtualExclusion(platform_id=platform_id, name=name))
+        try:
+            session.flush()
+        except IntegrityError:
+            session.rollback()
+            return False
+        return True
+
+    @begin_session
+    def is_excluded(
+        self, platform_id: int, name: str, session: Session = INJECTED_SESSION
+    ) -> bool:
+        return (
+            session.scalar(
+                select(VirtualExclusion.id)
+                .filter_by(platform_id=platform_id, name=name)
+                .limit(1)
+            )
+            is not None
+        )
+
+    @begin_session
+    def excluded_names(
+        self, platform_id: int, session: Session = INJECTED_SESSION
+    ) -> set[str]:
+        """All excluded names for a platform, for a bulk import check."""
+        return set(
+            session.scalars(
+                select(VirtualExclusion.name).filter_by(platform_id=platform_id)
+            ).all()
+        )
+
+    @begin_session
+    def download_queue(
+        self,
+        statuses: list[str],
+        platform_id: int | None = None,
+        limit: int = 500,
+        session: Session = INJECTED_SESSION,
+    ) -> list[Rom]:
+        """Virtual roms whose download_status is in `statuses`, oldest first —
+        what an external merge service polls to pick up work."""
+        stmt = (
+            select(Rom)
+            .where(Rom.is_virtual.is_(True), Rom.download_status.in_(statuses))
+            .order_by(Rom.id.asc())
+            .limit(limit)
+        )
+        if platform_id is not None:
+            stmt = stmt.where(Rom.platform_id == platform_id)
+        return list(session.scalars(stmt).all())

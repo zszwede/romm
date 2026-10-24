@@ -107,6 +107,16 @@ export const UI_SETTINGS_KEYS = {
     key: "settings.confirmProtectedLaunch",
     default: true,
   },
+
+  // Virtual-ROM downloads: the order of download hosts to prefer when a game
+  // is available from several (e.g. ["1fichier.com", "archive.org"]). Read
+  // back by the backend from ui_settings when dispatching a download. Stored
+  // per user; the server default (downloads.default_host_order) applies when
+  // this is empty.
+  downloadHostOrder: {
+    key: "settings.downloadHostOrder",
+    default: [] as string[],
+  },
 } as const;
 
 export type UISettingsKey = keyof typeof UI_SETTINGS_KEYS;

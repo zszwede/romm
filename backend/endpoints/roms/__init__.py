@@ -725,6 +725,7 @@ def get_roms(
         regions=[],
         languages=[],
         tags=[],
+        hosts=[],
         platforms=[],
     )
     if with_filter_values:

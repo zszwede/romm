@@ -60,6 +60,8 @@ export const v2RouteComponents: Partial<Record<RouteName, V2Route>> = {
   [ROUTES.SCAN_SETTINGS]: () => import("@/v2/views/Settings/ScanSettings.vue"),
   [ROUTES.CONVERSION_SETTINGS]: () =>
     import("@/v2/views/Settings/ConversionSettings.vue"),
+  [ROUTES.DOWNLOADS_SETTINGS]: () =>
+    import("@/v2/views/Settings/DownloadsSettings.vue"),
   [ROUTES.METADATA_SOURCES]: () =>
     import("@/v2/views/Settings/MetadataSources.vue"),
   [ROUTES.CLIENT_API_TOKENS]: () =>

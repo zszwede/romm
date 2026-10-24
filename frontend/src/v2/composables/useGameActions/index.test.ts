@@ -18,6 +18,7 @@ const snackbarInfo = vi.fn();
 const snackbarError = vi.fn();
 const probeFormatDownload = vi.fn();
 const downloadRom = vi.fn();
+const downloadVirtualRom = vi.fn();
 const confirmProtectedLaunch = { value: true };
 const canPlayEJS = { value: true };
 const canPlayJsDos = { value: false };
@@ -57,6 +58,7 @@ vi.mock("@/services/api/rom", () => ({
     updateUserRomProps: vi.fn(),
     probeFormatDownload: (href: string) => probeFormatDownload(href),
     downloadRom: (opts: unknown) => downloadRom(opts),
+    downloadVirtualRom: (opts: unknown) => downloadVirtualRom(opts),
   },
 }));
 
@@ -182,6 +184,7 @@ function romWithStatus(
 beforeEach(() => {
   probeFormatDownload.mockReset();
   downloadRom.mockReset();
+  downloadVirtualRom.mockReset();
   clipboardCopy.mockReset();
   emitterEmit.mockReset();
   confirmProtectedLaunch.value = true;
@@ -805,6 +808,46 @@ describe("useGameActions.copyDownloadLink", () => {
     expect(emitterEmit).toHaveBeenCalledWith(
       "showCopyDownloadLinkDialog",
       LINK,
+    );
+  });
+});
+
+describe("useGameActions.download — virtual ROM capture flow", () => {
+  const virtualRom = (name: string): SimpleRom =>
+    ({ ...romFixture({ name }), is_virtual: true }) as SimpleRom;
+
+  it("opens the capture dialog when the backend needs a browser", async () => {
+    const pages = [
+      { url: "https://1fichier.com/?abc", auto: false },
+      { url: "https://vikingfile.com/f/xyz", auto: true },
+    ];
+    downloadVirtualRom.mockResolvedValue({
+      data: { status: "browser_required", pages },
+    });
+    const rom = virtualRom("Gran Turismo 7");
+    const actions = useGameActions(() => rom);
+
+    actions.download();
+
+    await vi.waitFor(() =>
+      expect(emitterEmit).toHaveBeenCalledWith("showBrowserCaptureDialog", {
+        rom,
+        pages,
+      }),
+    );
+  });
+
+  it("does not open the dialog when the download starts directly", async () => {
+    downloadVirtualRom.mockResolvedValue({ data: { status: "started" } });
+    const rom = virtualRom("Sackboy A Big Adventure");
+    const actions = useGameActions(() => rom);
+
+    actions.download();
+
+    await vi.waitFor(() => expect(downloadVirtualRom).toHaveBeenCalled());
+    expect(emitterEmit).not.toHaveBeenCalledWith(
+      "showBrowserCaptureDialog",
+      expect.anything(),
     );
   });
 });

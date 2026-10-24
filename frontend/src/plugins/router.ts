@@ -416,6 +416,18 @@ const routes = [
             },
           },
           {
+            path: "downloads-settings",
+            name: ROUTES.DOWNLOADS_SETTINGS,
+            meta: {
+              title: "settings.downloads-settings",
+              bare: true,
+            },
+            components: {
+              default: () => import("@/views/Home.vue"),
+              v2: v2For(ROUTES.DOWNLOADS_SETTINGS),
+            },
+          },
+          {
             path: "metadata-sources",
             name: ROUTES.METADATA_SOURCES,
             meta: {

@@ -164,6 +164,11 @@ if not IS_PYTEST_RUN and not DISABLE_CSRF_PROTECTION:
             re.compile(r"^/api/client-tokens/pair/.+/status"),
             re.compile(r"^/api/auth/device/init/?$"),
             re.compile(r"^/api/auth/device/token/?$"),
+            # The merge-service download callback is authenticated by its own
+            # shared token (X-Callback-Token), not a session, so it carries no
+            # CSRF cookie. Same for the queue it polls.
+            re.compile(r"^/api/virtual/callback/?$"),
+            re.compile(r"^/api/virtual/queued/?$"),
             re.compile(r"^/ws"),
             re.compile(r"^/netplay"),
         ],

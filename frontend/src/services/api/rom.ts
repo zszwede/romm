@@ -208,6 +208,7 @@ export interface GetRomsParams {
   selectedPlayerCounts?: string[] | null;
   selectedMetadataProviders?: string[] | null;
   selectedTags?: string[] | null;
+  selectedHosts?: string[] | null;
   selectedStatuses?: string[] | null;
   // HowLongToBeat main-story bounds, in seconds (the unit the backend stores).
   hltbMainStoryMin?: number | null;
@@ -226,6 +227,7 @@ export interface GetRomsParams {
   playerCountsLogic?: string | null;
   metadataProvidersLogic?: string | null;
   tagsLogic?: string | null;
+  hostsLogic?: string | null;
   /** Days of the year the rom released on, as "M-D". Matches any year. */
   releasedDays?: string[] | null;
   /** Exclusive upper bound on the years `releasedDays` matches. */
@@ -274,6 +276,7 @@ export function buildGetRomsQuery({
   selectedPlayerCounts = null,
   selectedMetadataProviders = null,
   selectedTags = null,
+  selectedHosts = null,
   selectedStatuses = null,
   hltbMainStoryMin = null,
   hltbMainStoryMax = null,
@@ -291,6 +294,7 @@ export function buildGetRomsQuery({
   playerCountsLogic = null,
   metadataProvidersLogic = null,
   tagsLogic = null,
+  hostsLogic = null,
   releasedDays = null,
   releasedBeforeYear = null,
   withCharIndex = undefined,
@@ -357,6 +361,7 @@ export function buildGetRomsQuery({
         ? selectedMetadataProviders
         : undefined,
     tags: selectedTags && selectedTags.length > 0 ? selectedTags : undefined,
+    hosts: selectedHosts && selectedHosts.length > 0 ? selectedHosts : undefined,
     // Logic operators
     genres_logic:
       selectedGenres && selectedGenres.length > 0
@@ -408,6 +413,10 @@ export function buildGetRomsQuery({
         : undefined,
     tags_logic:
       selectedTags && selectedTags.length > 0 ? tagsLogic || "any" : undefined,
+    hosts_logic:
+      selectedHosts && selectedHosts.length > 0
+        ? hostsLogic || "any"
+        : undefined,
     ...(hltbMainStoryMin !== null
       ? { hltb_main_story_min: hltbMainStoryMin }
       : {}),
@@ -611,11 +620,99 @@ async function createPhysicalRom({
   return api.post<DetailedRom>("/roms/physical", payload);
 }
 
-/** Download a virtual ROM's file from its archive.org source. The backend runs
- *  the download in the background and clears `is_virtual` once it completes, so
- *  this resolves as soon as the download has been queued. */
-async function downloadVirtualRom({ romId }: { romId: number }) {
-  return api.post<{ msg: string }>(`/virtual/roms/${romId}/download`);
+export type ManualVirtualLink = {
+  url: string;
+  category?: "base" | "update" | "dlc";
+  name?: string | null;
+  version?: string | null;
+};
+
+/** Manually add a virtual (downloadable) ROM to a platform from host URLs. The
+ *  backend creates a file-less Rom routed through that platform's download
+ *  pipeline; existing games get the URL added as a mirror instead of a dup. */
+async function addManualRom({
+  platformId,
+  name,
+  links,
+}: {
+  platformId: number;
+  name: string;
+  links: ManualVirtualLink[];
+}) {
+  return api.post<{
+    msg: string;
+    outcome: "created" | "linked";
+    rom_id: number;
+    platform_id: number;
+  }>("/virtual/roms", {
+    platform_id: platformId,
+    name,
+    links: links.map((l) => ({
+      url: l.url,
+      category: l.category ?? "base",
+      name: l.name ?? null,
+      version: l.version ?? null,
+    })),
+  });
+}
+
+/** Download a virtual ROM's file from its source. The backend runs the download
+ *  in the background and clears `is_virtual` once it completes, so this resolves
+ *  as soon as the download is queued.
+ *
+ *  When every source sits behind a captcha/Cloudflare gate, the backend starts
+ *  nothing and returns `status: "browser_required"` with the page URLs to open;
+ *  the caller shows a capture dialog and re-calls with `directUrl` set to the
+ *  final file URL the user grabbed in their browser. */
+async function downloadVirtualRom({
+  romId,
+  directUrl,
+  resolveUrl,
+}: {
+  romId: number;
+  directUrl?: string | undefined;
+  resolveUrl?: string | undefined;
+}) {
+  return api.post<{
+    msg: string;
+    status: "started" | "browser_required";
+    pages?: { url: string; auto?: boolean }[];
+  }>(`/virtual/roms/${romId}/download`, {
+    direct_url: directUrl ?? null,
+    resolve_url: resolveUrl ?? null,
+  });
+}
+
+/** Flag a virtual ROM as wanted (the `D` hotkey). */
+async function markVirtualRomDownload({ romId }: { romId: number }) {
+  return api.post<{ msg: string; status: string }>(
+    `/virtual/roms/${romId}/mark-download`,
+  );
+}
+
+/** Clear a virtual ROM's download flag/status. */
+async function unmarkVirtualRomDownload({ romId }: { romId: number }) {
+  return api.delete<{ msg: string }>(`/virtual/roms/${romId}/mark-download`);
+}
+
+/** Hand a virtual ROM's URL set to the merge service now (queue + dispatch).
+ *  `urls` optionally restricts the job to a selected base/update/DLC subset. */
+async function dispatchVirtualRom({
+  romId,
+  urls,
+}: {
+  romId: number;
+  urls?: string[];
+}) {
+  return api.post<{ msg: string; status: string }>(
+    `/virtual/roms/${romId}/dispatch`,
+    { urls: urls ?? null },
+  );
+}
+
+/** Delete a virtual ROM and exclude it from future imports (the `Del` hotkey). */
+async function excludeVirtualRom({ romId }: { romId: number }) {
+  return api.post<{ msg: string }>(`/virtual/roms/${romId}/exclude`);
 }
 
 function triggerFileDownload(href: string) {
@@ -1115,7 +1212,12 @@ export default {
   bulkDownloadRoms,
   searchRom,
   createPhysicalRom,
+  addManualRom,
   downloadVirtualRom,
+  markVirtualRomDownload,
+  unmarkVirtualRomDownload,
+  dispatchVirtualRom,
+  excludeVirtualRom,
   updateRom,
   uploadManuals,
   removeManual,

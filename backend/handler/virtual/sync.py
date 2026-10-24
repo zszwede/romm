@@ -41,7 +41,8 @@ from utils.context import ctx_httpx_client, initialize_context
 from utils.filesystem import sanitize_filename
 
 from . import archive_auth
-from .archive_org import VirtualGame, list_games
+from . import resolver
+from .archive_org import VirtualGame, host_of, hosts_of, list_games
 from .progress import VirtualSyncProgress
 
 # Region spellings the allow-list accepts beyond what `normalize_region` knows
@@ -133,6 +134,11 @@ def _region_allowed(regions: list[str], languages: list[str], allow: set[str]) -
 def _link_existing(existing: Rom, url: str, source_id: int | None) -> tuple[str, Rom]:
     """Attach `url` to an already-present rom as a download mirror."""
     added = db_virtual_source_handler.add_mirror(existing.id, url, source_id)
+    if added:
+        host = host_of(url)
+        hosts = list(existing.source_hosts or [])
+        if host and host not in hosts:
+            db_rom_handler.update_rom(existing.id, {"source_hosts": hosts + [host]})
     return ("linked" if added else "skipped"), existing
 
 
@@ -185,6 +191,7 @@ async def _create_virtual_rom(
     allow: set[str],
     metadata_sources: list[str],
     source_id: int | None,
+    excluded: set[str] | None = None,
 ) -> tuple[str, Rom | None]:
     """Add one game. Returns (outcome, rom) where outcome is 'created',
     'linked', 'skipped' or 'failed' and rom is the created/linked row (or None
@@ -200,6 +207,9 @@ async def _create_virtual_rom(
     fs_name = sanitize_filename(clean_name)
     fs_name_no_ext = compute_file_name_no_ext(fs_name)
     if is_excluded_kind(fs_name):
+        return "skipped", None
+    # A game the user deleted-and-excluded must never be recreated on re-import.
+    if excluded and fs_name_no_ext in excluded:
         return "skipped", None
     parsed = fs_rom_handler.parse_tags(fs_name)
     if not _region_allowed(parsed.regions, parsed.languages, allow):
@@ -222,6 +232,11 @@ async def _create_virtual_rom(
                 name=compute_file_name_no_tags(fs_name),
                 is_virtual=True,
                 source_url=game.source_url,
+                virtual_contents=list(game.contents) or None,
+                source_hosts=hosts_of(
+                    [c["url"] for c in game.contents if c.get("url")]
+                    or [game.source_url]
+                ),
                 regions=parsed.regions,
                 languages=parsed.languages,
                 revision=parsed.revision,
@@ -286,12 +301,13 @@ async def sync_source(
 
     allow = _normalized_allow(source.region_filter)
     metadata_sources = [s.value for s in MetadataSource]
+    excluded = db_virtual_source_handler.excluded_names(platform.id)
     counts = {"created": 0, "linked": 0, "skipped": 0, "failed": 0}
     for game in games:
         rom: Rom | None = None
         try:
             outcome, rom = await _create_virtual_rom(
-                platform, game, allow, metadata_sources, source.id
+                platform, game, allow, metadata_sources, source.id, excluded
             )
             counts[outcome] += 1
         except Exception:
@@ -390,8 +406,48 @@ async def _download_to(
     return None
 
 
-async def materialize_rom(rom_id: int) -> None:
-    """Background entry point: download a virtual rom's file and make it normal."""
+async def _resolve_download_urls(
+    urls: list[str], direct_url: str | None, resolve_url: str | None
+) -> list[str]:
+    """Turn source URLs into directly-fetchable file URLs via the flow resolver.
+
+    A browser-only source (captcha/Cloudflare) or a dead one is skipped; a
+    ``direct_url`` a user captured in a browser is used as the file itself, while
+    ``resolve_url`` is a single source resolved through its flow (scrape/form).
+    Returns the fetchable URLs in order, so ``_download_to`` can still fall back
+    between them.
+    """
+    client = ctx_httpx_client.get()
+    resolved: list[str] = []
+    if direct_url:
+        candidates = [(direct_url, direct_url)]
+    elif resolve_url:
+        candidates = [(resolve_url, None)]
+    else:
+        candidates = [(u, None) for u in urls]
+    for url, direct in candidates:
+        try:
+            r = await resolver.resolve(client, url, direct_url=direct)
+            if r.url not in resolved:
+                resolved.append(r.url)
+        except resolver.BrowserRequired:
+            log.info("Source %s needs a browser; skipping for auto-download", url)
+        except resolver.ResolveError as exc:
+            log.warning("Source %s unusable: %s", url, exc)
+        except Exception:  # noqa: BLE001
+            log.warning("Resolving %s failed; skipping", url)
+    return resolved
+
+
+async def materialize_rom(
+    rom_id: int, direct_url: str | None = None, resolve_url: str | None = None
+) -> None:
+    """Background entry point: download a virtual rom's file and make it normal.
+
+    ``direct_url`` is a final file URL a user captured in a browser for a captcha
+    source; ``resolve_url`` is a single source to resolve server-side through its
+    flow. When either is given it is used instead of the stored sources.
+    """
     async with initialize_context():
         rom = db_rom_handler.get_rom(rom_id)
         if rom is None or not rom.is_virtual or not rom.source_urls:
@@ -403,9 +459,16 @@ async def materialize_rom(rom_id: int) -> None:
         dest = fs_virtual_handler.rom_write_path(platform.fs_slug, rom.fs_name)
         await fs_virtual_handler.ensure_platform_dirs(platform.fs_slug)
 
-        # Try the primary URL then each mirror, so a game two sources listed can
-        # fall back to another location (archive.org nodes 500 intermittently).
-        urls = rom.source_urls
+        # Resolve each source (primary then mirrors) to a fetchable file URL, so
+        # a game two sources listed can fall back to another location
+        # (archive.org nodes 500 intermittently; a file host may be down).
+        urls = await _resolve_download_urls(rom.source_urls, direct_url, resolve_url)
+        if not urls:
+            log.error(
+                "Virtual rom %s: no fetchable source (all need a browser or are "
+                "dead)", rom.fs_name
+            )
+            return
         result = await _download_to(dest, urls)
         if result is None:
             log.error("Virtual rom %s download failed from all %d source(s)",

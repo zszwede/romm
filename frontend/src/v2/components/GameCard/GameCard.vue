@@ -44,6 +44,7 @@ import { useRouter } from "vue-router";
 import type { SimpleRom } from "@/stores/roms";
 import GameActionBtn from "@/v2/components/GameActions/GameActionBtn.vue";
 import CardFlags from "@/v2/components/GameCard/CardFlags.vue";
+import DownloadBadge from "@/v2/components/GameCard/DownloadBadge.vue";
 import SiblingBadge from "@/v2/components/GameCard/SiblingBadge.vue";
 import CoverArtPip from "@/v2/components/shared/CoverArtPip.vue";
 import GameCover from "@/v2/components/shared/GameCover.vue";
@@ -471,6 +472,9 @@ function onCardKeydown(e: KeyboardEvent) {
         />
 
         <SiblingBadge :rom="rom" />
+
+        <!-- Download-pipeline marker for virtual games: top-left. -->
+        <DownloadBadge :rom="rom" />
 
         <!-- Region / language flags: bottom-left, gated by the
              showRegions / showLanguages UI settings. -->

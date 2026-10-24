@@ -15,7 +15,8 @@ export type FilterType =
   | "languages"
   | "playerCounts"
   | "metadataProviders"
-  | "tags";
+  | "tags"
+  | "hosts";
 
 export type FilterLogicOperator = "any" | "all" | "none";
 
@@ -39,6 +40,7 @@ const buildDefaultFilterState = () => ({
   filterLanguages: [] as string[],
   filterPlayerCounts: [] as string[],
   filterTags: [] as string[],
+  filterHosts: [] as string[],
   filterStatuses: Object.keys(romStatusMap),
   filterMatched: null as boolean | null, // null = all, true = matched, false = unmatched
   filterFavorites: null as boolean | null, // null = all, true = favorites, false = not favorites
@@ -66,6 +68,7 @@ const buildDefaultFilterState = () => ({
   selectedPlayerCounts: [] as string[],
   selectedMetadataProviders: [] as string[],
   selectedTags: [] as string[],
+  selectedHosts: [] as string[],
   selectedStatuses: [] as string[],
   // HowLongToBeat main-story bounds in hours; null leaves that end open. Games
   // with no HowLongToBeat time are excluded whenever either bound is set.
@@ -85,6 +88,7 @@ const buildDefaultFilterState = () => ({
   playerCountsLogic: "any" as FilterLogicOperator,
   metadataProvidersLogic: "any" as FilterLogicOperator,
   tagsLogic: "any" as FilterLogicOperator,
+  hostsLogic: "any" as FilterLogicOperator,
 });
 
 export default defineStore("galleryFilter", {
@@ -129,6 +133,9 @@ export default defineStore("galleryFilter", {
     },
     setFilterTags(tags: string[] | null | undefined) {
       this.filterTags = tags ?? [];
+    },
+    setFilterHosts(hosts: string[] | null | undefined) {
+      this.filterHosts = hosts ?? [];
     },
     setSelectedFilterPlatform(platform: Platform) {
       this.selectedPlatform = platform
@@ -211,6 +218,12 @@ export default defineStore("galleryFilter", {
     },
     setTagsLogic(logic: FilterLogicOperator) {
       this.tagsLogic = logic;
+    },
+    setSelectedFilterHosts(hosts: string[]) {
+      this.selectedHosts = hosts;
+    },
+    setHostsLogic(logic: FilterLogicOperator) {
+      this.hostsLogic = logic;
     },
     setSelectedFilterStatuses(statuses: string[]) {
       this.selectedStatuses = statuses;
@@ -499,6 +512,7 @@ export default defineStore("galleryFilter", {
         this.selectedPlayerCounts.length > 0 ||
         this.selectedMetadataProviders.length > 0 ||
         this.selectedTags.length > 0 ||
+        this.selectedHosts.length > 0 ||
         this.selectedStatuses.length > 0 ||
         this.selectedLengthMinHours !== null ||
         this.selectedLengthMaxHours !== null,
@@ -522,6 +536,7 @@ export default defineStore("galleryFilter", {
       this.selectedPlayerCounts = [];
       this.selectedMetadataProviders = [];
       this.selectedTags = [];
+      this.selectedHosts = [];
       this.selectedStatuses = [];
       this.selectedLengthMinHours = null;
       this.selectedLengthMaxHours = null;
@@ -551,6 +566,7 @@ export default defineStore("galleryFilter", {
       this.playerCountsLogic = "any";
       this.metadataProvidersLogic = "any";
       this.tagsLogic = "any";
+      this.hostsLogic = "any";
     },
   },
 });

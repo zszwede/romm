@@ -142,6 +142,7 @@ const headLabels = computed(() => ({
     ? t("platform.hide-virtual")
     : t("platform.show-virtual"),
   addVirtualSource: t("platform.add-virtual-source"),
+  addVirtualGame: t("rom.add-virtual-game"),
 }));
 
 function onTabChange(next: string) {
@@ -382,6 +383,11 @@ function onAddVirtualSource() {
   addSourceOpen.value = true;
 }
 
+function onAddVirtualGame() {
+  if (!currentPlatform.value) return;
+  emitter?.emit("showAddVirtualGameDialog", currentPlatform.value);
+}
+
 // Toggle virtual games on/off, persist per platform, and let the store
 // reload the grid with the new `virtual` filter.
 function onToggleVirtual() {
@@ -541,6 +547,7 @@ async function onDelete() {
         @download="onDownload"
         @toggle-virtual="onToggleVirtual"
         @add-virtual-source="onAddVirtualSource"
+        @add-virtual-game="onAddVirtualGame"
       />
     </template>
   </GalleryShell>
@@ -572,6 +579,7 @@ async function onDelete() {
         @download="onDownload"
         @toggle-virtual="onToggleVirtual"
         @add-virtual-source="onAddVirtualSource"
+        @add-virtual-game="onAddVirtualGame"
       />
     </template>
     <template v-if="currentPlatform">

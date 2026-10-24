@@ -85,6 +85,26 @@ async function updateConvertoSettings(payload: ConvertoSettingsPayload) {
   );
 }
 
+export interface DownloadsSettingsPayload {
+  merge_service_url: string;
+  service_api_token: string;
+  callback_token: string;
+  host_tokens: Record<string, string>;
+  default_host_order: string[];
+}
+
+/** Admin-only: the virtual-ROM download workflow settings (carries secrets). */
+async function getDownloadsSettings() {
+  return api.get<DownloadsSettingsPayload>("/config/downloads_settings");
+}
+
+async function updateDownloadsSettings(payload: DownloadsSettingsPayload) {
+  return api.put<void, AxiosResponse<void>, DownloadsSettingsPayload>(
+    "/config/downloads_settings",
+    payload,
+  );
+}
+
 export default {
   addPlatformBindConfig,
   deletePlatformBindConfig,
@@ -94,4 +114,6 @@ export default {
   deleteExclusion,
   updateScanSettings,
   updateConvertoSettings,
+  getDownloadsSettings,
+  updateDownloadsSettings,
 };

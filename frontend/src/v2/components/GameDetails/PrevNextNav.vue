@@ -14,9 +14,7 @@
 import { RBtn } from "@v2/lib";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { useRoute, useRouter } from "vue-router";
-import { ROUTES } from "@/plugins/router";
-import { useGalleryProvenance } from "@/v2/composables/useGalleryProvenance";
+import { useGalleryNeighbors } from "@/v2/composables/useGalleryNeighbors";
 import storeGalleryRoms from "@/v2/stores/galleryRoms";
 
 defineOptions({ inheritAttrs: false });
@@ -32,27 +30,12 @@ defineSlots<{
 }>();
 
 const { t } = useI18n();
-const route = useRoute();
-const router = useRouter();
 const galleryRoms = storeGalleryRoms();
-const { enteredFromGallery } = useGalleryProvenance();
-
-const position = computed(() =>
-  enteredFromGallery.value ? galleryRoms.romIdIndex.indexOf(props.romId) : -1,
+const { hasList, prevPosition, nextPosition, go } = useGalleryNeighbors(
+  () => props.romId,
 );
 
-const visible = computed(
-  () => position.value >= 0 && galleryRoms.romIdIndex.length > 1,
-);
-
-const prevPosition = computed(() =>
-  position.value > 0 ? position.value - 1 : null,
-);
-const nextPosition = computed(() =>
-  position.value >= 0 && position.value < galleryRoms.romIdIndex.length - 1
-    ? position.value + 1
-    : null,
-);
+const visible = hasList;
 
 // The neighbour's title, when its gallery window happens to be loaded.
 // Turns the icon-only buttons into "where am I going" affordances; falls
@@ -69,17 +52,6 @@ const prevTooltip = computed(() =>
 const nextTooltip = computed(() =>
   tooltipFor(nextPosition.value, t("rom.next-game")),
 );
-
-function go(position: number | null) {
-  if (position === null) return;
-  void router.push({
-    name: ROUTES.ROM,
-    params: { rom: galleryRoms.romIdIndex[position] },
-    // Keep `?tab=` and friends so stepping through a list doesn't drop
-    // the user back to Overview on every hop.
-    query: route.query,
-  });
-}
 </script>
 
 <template>

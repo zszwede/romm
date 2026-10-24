@@ -122,6 +122,12 @@ function run(fn: () => void | Promise<void>) {
     @click="run(actions.match)"
   />
   <RMenuItem
+    v-if="actions.canMatch.value && !actions.isVirtual.value"
+    :label="t('rom.unmatch-rom')"
+    icon="mdi-link-variant-off"
+    @click="run(actions.unmatchRom)"
+  />
+  <RMenuItem
     v-if="actions.canRefresh.value"
     :label="t('rom.refresh-metadata')"
     icon="mdi-refresh"

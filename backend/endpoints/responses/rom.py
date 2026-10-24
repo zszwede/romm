@@ -442,6 +442,10 @@ class RomSchema(BaseModel):
     is_physical: bool
     is_virtual: bool
     source_url: str | None
+    # Distinct download hosts a virtual game is served from (for the host filter
+    # and the card's host marker), and where it sits in the download pipeline.
+    source_hosts: list[str] | None = None
+    download_status: str | None = None
     has_file_on_disk: bool
     upc: str | None
     has_notes: bool
@@ -637,6 +641,9 @@ class DetailedRomSchema(RomSchema):
     download_formats: list[str]
     # Every place a virtual rom can be downloaded from (primary URL + mirrors).
     source_urls: list[str]
+    # Full downloadable set (base + updates + DLC) for a virtual game, each a
+    # dict {category, name, url, host, version, size}.
+    virtual_contents: list | None = None
 
     @classmethod
     def from_orm_with_request(cls, db_rom: Rom, request: Request) -> DetailedRomSchema:
