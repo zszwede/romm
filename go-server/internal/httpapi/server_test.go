@@ -55,6 +55,9 @@ type fakeStore struct {
 	gotProps         store.RomUserProps
 	propsCalls       int
 	upserts          []scan.Record
+
+	locPath, locName string
+	locFound         bool
 }
 
 func (f *fakeStore) Counts(context.Context) (store.Counts, error) { return f.counts, nil }
@@ -64,6 +67,9 @@ func (f *fakeStore) ListRoms(context.Context, int64, int) ([]store.Rom, error) {
 func (f *fakeStore) ListPlatforms(context.Context) ([]store.Platform, error) { return f.platforms, nil }
 func (f *fakeStore) GetRom(_ context.Context, id int64) (*store.RomDetail, error) {
 	return f.roms[id], nil
+}
+func (f *fakeStore) GetRomLocation(context.Context, int64) (string, string, bool, error) {
+	return f.locPath, f.locName, f.locFound, nil
 }
 func (f *fakeStore) UserIDByUsername(context.Context, string) (int64, error) { return f.userID, nil }
 func (f *fakeStore) SetRomUserProps(_ context.Context, uid, romID int64, p store.RomUserProps) (int, error) {
@@ -320,6 +326,47 @@ func TestSPA_DiskWebRootAndFallback(t *testing.T) {
 	// index itself.
 	if w := do(s, "GET", "/", "", ""); w.Code != 200 || !strings.Contains(w.Body.String(), "RomM") {
 		t.Errorf("index: code %d", w.Code)
+	}
+}
+
+func TestRomContent(t *testing.T) {
+	tmp := t.TempDir()
+	dir := filepath.Join(tmp, "library", "roms", "test")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "g.bin"), []byte("DATA123"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fs := &fakeStore{locPath: "roms/test", locName: "g.bin", locFound: true}
+	s := New(Deps{Store: fs, AuthSecret: testSecret, ScanRoot: filepath.Join(tmp, "library", "roms")})
+	tok := token(t, testSecret, "access", "romm:oauth")
+
+	// Auth required.
+	if w := do(s, "GET", "/api/roms/7/content", "", ""); w.Code != 401 {
+		t.Fatalf("no token: want 401 got %d", w.Code)
+	}
+	// Full content.
+	w := do(s, "GET", "/api/roms/7/content", tok, "")
+	if w.Code != 200 || w.Body.String() != "DATA123" {
+		t.Fatalf("content: code %d body %q", w.Code, w.Body.String())
+	}
+	if cd := w.Header().Get("Content-Disposition"); !strings.Contains(cd, "g.bin") {
+		t.Errorf("content-disposition = %q", cd)
+	}
+	// Range request -> 206 partial.
+	r := httptest.NewRequest("GET", "/api/roms/7/content", nil)
+	r.Header.Set("Authorization", "Bearer "+tok)
+	r.Header.Set("Range", "bytes=0-1")
+	rw := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rw, r)
+	if rw.Code != 206 || rw.Body.String() != "DA" {
+		t.Errorf("range: code %d body %q", rw.Code, rw.Body.String())
+	}
+	// Missing rom -> 404.
+	fs.locFound = false
+	if w := do(s, "GET", "/api/roms/9/content", tok, ""); w.Code != 404 {
+		t.Errorf("missing: want 404 got %d", w.Code)
 	}
 }
 

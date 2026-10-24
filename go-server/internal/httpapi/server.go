@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -45,6 +46,7 @@ type DataStore interface {
 	ListRoms(ctx context.Context, platformID int64, limit int) ([]store.Rom, error)
 	ListPlatforms(ctx context.Context) ([]store.Platform, error)
 	GetRom(ctx context.Context, id int64) (*store.RomDetail, error)
+	GetRomLocation(ctx context.Context, id int64) (fsPath, fsName string, found bool, err error)
 	UserIDByUsername(ctx context.Context, username string) (int64, error)
 	SetRomUserProps(ctx context.Context, userID, romID int64, p store.RomUserProps) (int, error)
 	ListPlatformDirs(ctx context.Context) ([]scan.PlatformDir, error)
@@ -70,14 +72,15 @@ type Deps struct {
 }
 
 type Server struct {
-	st       DataStore
-	secret   string
-	queue    *worker.Queue
-	scanRoot string
-	meta     metadata.Provider
-	virt     VirtualService
-	static   fs.FS
-	mux      *http.ServeMux
+	st          DataStore
+	secret      string
+	queue       *worker.Queue
+	scanRoot    string
+	libraryRoot string // parent of scanRoot; roms resolve as <libraryRoot>/<fs_path>/<fs_name>
+	meta        metadata.Provider
+	virt        VirtualService
+	static      fs.FS
+	mux         *http.ServeMux
 }
 
 func New(d Deps) *Server {
@@ -89,6 +92,9 @@ func New(d Deps) *Server {
 		meta:     d.Metadata,
 		virt:     d.Virtual,
 		mux:      http.NewServeMux(),
+	}
+	if d.ScanRoot != "" {
+		s.libraryRoot = filepath.Dir(d.ScanRoot)
 	}
 	s.static = resolveStatic(d.WebRoot)
 	s.routes()
@@ -119,6 +125,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/platforms", s.listPlatforms)
 	s.mux.HandleFunc("GET /api/roms", s.listRoms)
 	s.mux.HandleFunc("GET /api/roms/{id}", s.getRom)
+	s.mux.HandleFunc("GET /api/roms/{id}/content", s.getRomContent)
 	s.mux.HandleFunc("GET /api/collections", s.listCollections)
 	s.mux.HandleFunc("PUT /api/roms/{id}/props", s.setRomProps)
 	s.mux.HandleFunc("POST /api/scan", s.triggerScan)
@@ -192,6 +199,56 @@ func (s *Server) listRoms(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": roms, "limit": limit})
+}
+
+// getRomContent streams a rom's file (range-capable, for downloads and the
+// in-browser players). Bearer-protected — it serves the user's library.
+func (s *Server) getRomContent(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.authUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if s.libraryRoot == "" {
+		writeErr(w, http.StatusServiceUnavailable, "library root not configured")
+		return
+	}
+	id := int64(atoiDefault(r.PathValue("id"), 0))
+	if id <= 0 {
+		writeErr(w, http.StatusBadRequest, "bad id")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	fsPath, fsName, found, err := s.st.GetRomLocation(ctx, id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	if !found {
+		writeErr(w, http.StatusNotFound, "rom not found")
+		return
+	}
+	// Resolve and confine to the library root (defence against traversal in the
+	// stored path).
+	full := filepath.Join(s.libraryRoot, filepath.FromSlash(fsPath), fsName)
+	clean := filepath.Clean(full)
+	if clean != s.libraryRoot && !strings.HasPrefix(clean, s.libraryRoot+string(os.PathSeparator)) {
+		writeErr(w, http.StatusBadRequest, "invalid path")
+		return
+	}
+	f, err := os.Open(clean)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "file missing")
+		return
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil || st.IsDir() {
+		writeErr(w, http.StatusNotFound, "file missing")
+		return
+	}
+	w.Header().Set("Content-Disposition", "attachment; filename*=UTF-8''"+url.PathEscape(fsName))
+	http.ServeContent(w, r, fsName, st.ModTime(), f) // handles Range + If-Modified-Since
 }
 
 func (s *Server) listCollections(w http.ResponseWriter, r *http.Request) {

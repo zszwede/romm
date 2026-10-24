@@ -393,3 +393,20 @@ func applyDownloaded(ctx context.Context, e execer, romID int64, dir, name strin
 		dir, name, noExt, noTags, ext, size, fph, romID)
 	return err
 }
+
+// --- rom file location (for content serving) ---
+
+// GetRomLocation returns a rom's library-relative dir and file name, or
+// found=false if the rom doesn't exist.
+func (s *Store) GetRomLocation(ctx context.Context, id int64) (fsPath, fsName string, found bool, err error) {
+	err = s.DB.QueryRowContext(ctx,
+		`SELECT COALESCE(fs_path,''), COALESCE(fs_name,'') FROM roms WHERE id = ?`, id).
+		Scan(&fsPath, &fsName)
+	if err == sql.ErrNoRows {
+		return "", "", false, nil
+	}
+	if err != nil {
+		return "", "", false, err
+	}
+	return fsPath, fsName, fsName != "", nil
+}
