@@ -12,6 +12,7 @@ import (
 	"github.com/zszwede/romm-go/internal/httpapi"
 	"github.com/zszwede/romm-go/internal/metadata"
 	"github.com/zszwede/romm-go/internal/store"
+	"github.com/zszwede/romm-go/internal/virtual"
 	"github.com/zszwede/romm-go/internal/worker"
 )
 
@@ -33,6 +34,11 @@ func main() {
 		provider = metadata.NewIGDB(cfg.IGDBClientID, cfg.IGDBClientSecret)
 	}
 
+	var virt httpapi.VirtualService
+	if cfg.MergeServiceURL != "" {
+		virt = virtual.NewClient(cfg.MergeServiceURL, cfg.MergeServiceToken)
+	}
+
 	srv := &http.Server{
 		Addr: cfg.Addr,
 		Handler: httpapi.New(httpapi.Deps{
@@ -41,6 +47,7 @@ func main() {
 			Queue:      queue,
 			ScanRoot:   scanRoot,
 			Metadata:   provider,
+			Virtual:    virt,
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

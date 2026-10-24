@@ -18,6 +18,6 @@ Endpoints: `GET /api/heartbeat`, `GET /api/roms?platform_id=&limit=`.
    with the current `ROMM_AUTH_SECRET_KEY`
 3. ✅ scanner + native hashing + in-process worker queue (drops Redis); ES-DE gamelist metadata ingest TODO
 4. ✅ metadata providers — IGDB (live-tested); ScreenScraper/Hasheous slot behind the same Provider interface
-5. absorb RommDownloader (virtual-download dispatch/queue/merge) into this binary
+5. ✅ virtual-download orchestration — check + dispatch to the merge service (RommDownloader stays the merge worker)
 6. long tail (saves/states, play sessions, streaming, OIDC) — only what's used
 Frontend stays the built Vue dist, embedded here in a later phase.

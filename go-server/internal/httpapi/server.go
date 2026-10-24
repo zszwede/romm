@@ -18,9 +18,17 @@ import (
 	"github.com/zszwede/romm-go/internal/metadata"
 	"github.com/zszwede/romm-go/internal/scan"
 	"github.com/zszwede/romm-go/internal/store"
+	"github.com/zszwede/romm-go/internal/virtual"
 	"github.com/zszwede/romm-go/internal/worker"
 	"github.com/zszwede/romm-go/web"
 )
+
+// VirtualService is the merge-service orchestration the API needs (an interface
+// so handlers can be faked in tests).
+type VirtualService interface {
+	Check(ctx context.Context, urls []string) ([]virtual.Availability, error)
+	Dispatch(ctx context.Context, j virtual.Job) (string, error)
+}
 
 // Version reported by the heartbeat. Distinct from the Python app's so it's
 // obvious which backend answered during the migration.
@@ -47,6 +55,7 @@ type Deps struct {
 	Queue      *worker.Queue
 	ScanRoot   string // ES-DE roms root, e.g. ROMM_BASE_PATH/library/roms
 	Metadata   metadata.Provider
+	Virtual    VirtualService
 }
 
 type Server struct {
@@ -55,6 +64,7 @@ type Server struct {
 	queue    *worker.Queue
 	scanRoot string
 	meta     metadata.Provider
+	virt     VirtualService
 	mux      *http.ServeMux
 }
 
@@ -65,6 +75,7 @@ func New(d Deps) *Server {
 		queue:    d.Queue,
 		scanRoot: d.ScanRoot,
 		meta:     d.Metadata,
+		virt:     d.Virtual,
 		mux:      http.NewServeMux(),
 	}
 	s.routes()
@@ -83,6 +94,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/scan", s.listScans)
 	s.mux.HandleFunc("GET /api/scan/{id}", s.scanStatus)
 	s.mux.HandleFunc("GET /api/metadata/search", s.searchMetadata)
+	s.mux.HandleFunc("POST /api/virtual/check", s.virtualCheck)
+	s.mux.HandleFunc("POST /api/virtual/dispatch", s.virtualDispatch)
 
 	sub, err := fs.Sub(web.Static, "static")
 	if err != nil {
@@ -254,6 +267,68 @@ func (s *Server) searchMetadata(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"provider": s.meta.Name(), "items": games})
+}
+
+func (s *Server) virtualCheck(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.authUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if s.virt == nil {
+		writeErr(w, http.StatusServiceUnavailable, "merge service not configured")
+		return
+	}
+	var body struct {
+		URLs []string `json:"urls"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil || len(body.URLs) == 0 {
+		writeErr(w, http.StatusBadRequest, "urls required")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
+	defer cancel()
+	res, err := s.virt.Check(ctx, body.URLs)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "merge service error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"results": res})
+}
+
+func (s *Server) virtualDispatch(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.authUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if s.virt == nil {
+		writeErr(w, http.StatusServiceUnavailable, "merge service not configured")
+		return
+	}
+	var job virtual.Job
+	var body struct {
+		System     string         `json:"system"`
+		Name       string         `json:"name"`
+		Links      []virtual.Link `json:"links"`
+		RomID      int64          `json:"rom_id"`
+		PlatformID int64          `json:"platform_id"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<18)).Decode(&body); err != nil ||
+		body.System == "" || body.Name == "" || len(body.Links) == 0 {
+		writeErr(w, http.StatusBadRequest, "system, name and links required")
+		return
+	}
+	job = virtual.Job{
+		System: body.System, Name: body.Name, Links: body.Links,
+		RomID: body.RomID, PlatformID: body.PlatformID,
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+	id, err := s.virt.Dispatch(ctx, job)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "dispatch failed")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": id})
 }
 
 // authUser extracts and verifies the Bearer access token, if any.

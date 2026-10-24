@@ -16,8 +16,23 @@ import (
 	"github.com/zszwede/romm-go/internal/metadata"
 	"github.com/zszwede/romm-go/internal/scan"
 	"github.com/zszwede/romm-go/internal/store"
+	"github.com/zszwede/romm-go/internal/virtual"
 	"github.com/zszwede/romm-go/internal/worker"
 )
+
+type fakeVirtual struct {
+	gotURLs []string
+	gotJob  virtual.Job
+}
+
+func (f *fakeVirtual) Check(_ context.Context, urls []string) ([]virtual.Availability, error) {
+	f.gotURLs = urls
+	return []virtual.Availability{{URL: urls[0], Available: true, Checked: true, Filename: "x.rar"}}, nil
+}
+func (f *fakeVirtual) Dispatch(_ context.Context, j virtual.Job) (string, error) {
+	f.gotJob = j
+	return "job-1", nil
+}
 
 type fakeProvider struct{}
 
@@ -232,6 +247,38 @@ func TestSearchMetadata(t *testing.T) {
 	w := do(s, "GET", "/api/metadata/search?q=zelda", tok, "")
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "Match for zelda") {
 		t.Fatalf("code %d body %s", w.Code, w.Body.String())
+	}
+}
+
+func TestVirtual_CheckAndDispatch(t *testing.T) {
+	fv := &fakeVirtual{}
+	s := New(Deps{Store: &fakeStore{userID: 1}, AuthSecret: testSecret, Virtual: fv})
+	tok := token(t, testSecret, "access", "romm:oauth")
+
+	// Auth required.
+	if w := do(s, "POST", "/api/virtual/check", "", `{"urls":["u1"]}`); w.Code != 401 {
+		t.Errorf("check no token: want 401 got %d", w.Code)
+	}
+	// Check.
+	w := do(s, "POST", "/api/virtual/check", tok, `{"urls":["u1","u2"]}`)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "x.rar") {
+		t.Fatalf("check: code %d body %s", w.Code, w.Body.String())
+	}
+	if len(fv.gotURLs) != 2 {
+		t.Errorf("check urls = %v", fv.gotURLs)
+	}
+	// Dispatch validation (missing links -> 400).
+	if w := do(s, "POST", "/api/virtual/dispatch", tok, `{"system":"switch","name":"G.nsp"}`); w.Code != 400 {
+		t.Errorf("dispatch missing links: want 400 got %d", w.Code)
+	}
+	// Dispatch ok.
+	w = do(s, "POST", "/api/virtual/dispatch", tok,
+		`{"system":"switch","name":"G.nsp","rom_id":35950,"platform_id":28,"links":[{"url":"https://1fichier.com/?x","category":"base"}]}`)
+	if w.Code != 202 || !strings.Contains(w.Body.String(), "job-1") {
+		t.Fatalf("dispatch: code %d body %s", w.Code, w.Body.String())
+	}
+	if fv.gotJob.RomID != 35950 || fv.gotJob.System != "switch" || len(fv.gotJob.Links) != 1 {
+		t.Errorf("dispatched job wrong: %+v", fv.gotJob)
 	}
 }
 
