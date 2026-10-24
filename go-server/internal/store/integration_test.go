@@ -56,11 +56,24 @@ func TestUpsert_Integration(t *testing.T) {
 		t.Fatalf("upsert against real schema failed: %v", err)
 	}
 	// Confirm the row is visible inside the tx before rollback.
-	var n int
+	var id int
 	err = tx.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM roms WHERE platform_id=? AND fs_name=?", pid, rec.FsName).Scan(&n)
-	if err != nil || n != 1 {
-		t.Fatalf("probe row count = %d err=%v, want 1", n, err)
+		"SELECT id FROM roms WHERE platform_id=? AND fs_name=?", pid, rec.FsName).Scan(&id)
+	if err != nil {
+		t.Fatalf("probe row lookup: %v", err)
 	}
-	t.Logf("insert OK against live schema (platform %d), rolling back", pid)
+
+	// ApplyDownloaded must also run cleanly against the real schema.
+	if err := applyDownloaded(ctx, tx, int64(id), "roms/__gotest__", "merged (USA).nsp", 999); err != nil {
+		t.Fatalf("applyDownloaded against live schema failed: %v", err)
+	}
+	var fsName string
+	var virt int
+	if err := tx.QueryRowContext(ctx, "SELECT fs_name, is_virtual FROM roms WHERE id=?", id).Scan(&fsName, &virt); err != nil {
+		t.Fatalf("re-read: %v", err)
+	}
+	if fsName != "merged (USA).nsp" || virt != 0 {
+		t.Fatalf("after apply: fs_name=%q is_virtual=%d", fsName, virt)
+	}
+	t.Logf("insert + applyDownloaded OK against live schema (platform %d), rolling back", pid)
 }

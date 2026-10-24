@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/zszwede/romm-go/internal/downloader/jobs"
+	"github.com/zszwede/romm-go/internal/downloader/pipeline"
 	"github.com/zszwede/romm-go/internal/virtual"
 )
 
@@ -38,7 +40,7 @@ systems:
 }
 
 func TestService_LoadDispatchCheck(t *testing.T) {
-	svc, err := LoadAndStart(writeConfig(t, true))
+	svc, err := LoadAndStart(writeConfig(t, true), nil)
 	if err != nil {
 		t.Fatalf("load/start: %v", err)
 	}
@@ -67,7 +69,7 @@ func TestService_LoadDispatchCheck(t *testing.T) {
 }
 
 func TestService_RejectsUnmatchedHost(t *testing.T) {
-	svc, err := LoadAndStart(writeConfig(t, false)) // no hosts configured
+	svc, err := LoadAndStart(writeConfig(t, false), nil) // no hosts configured
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,5 +78,60 @@ func TestService_RejectsUnmatchedHost(t *testing.T) {
 		System: "test", Name: "x", Links: []virtual.Link{{URL: "http://example.com/x", Category: "base"}},
 	}); err == nil {
 		t.Error("expected error: no host configuration matches")
+	}
+}
+
+type fakeUpdater struct {
+	romID     int64
+	dir, name string
+	size      int64
+	calls     int
+}
+
+func (f *fakeUpdater) ApplyDownloaded(_ context.Context, romID int64, dir, name string, size int64) error {
+	f.romID, f.dir, f.name, f.size, f.calls = romID, dir, name, size, f.calls+1
+	return nil
+}
+
+func TestApplyJob(t *testing.T) {
+	up := &fakeUpdater{}
+	j := &jobs.Job{
+		Status:   jobs.Completed,
+		Metadata: map[string]any{"rom_id": float64(35950)}, // float64 as after a JSON round-trip
+		Files: []pipeline.Delivered{
+			{Path: "/mnt/retroEMU/roms/switch/Game [v0].nsp", Name: "Game [v0].nsp", Size: 4242},
+		},
+	}
+	if !applyJob(context.Background(), j, up) {
+		t.Fatal("applyJob returned false")
+	}
+	if up.calls != 1 || up.romID != 35950 || up.dir != "roms/switch" || up.name != "Game [v0].nsp" || up.size != 4242 {
+		t.Errorf("updater got romID=%d dir=%q name=%q size=%d calls=%d", up.romID, up.dir, up.name, up.size, up.calls)
+	}
+
+	// Not-completed and missing-rom_id are no-ops.
+	if applyJob(context.Background(), &jobs.Job{Status: jobs.Failed}, up) {
+		t.Error("failed job should not apply")
+	}
+	if applyJob(context.Background(), &jobs.Job{Status: jobs.Completed}, up) {
+		t.Error("job without rom_id should not apply")
+	}
+}
+
+func TestRelDir(t *testing.T) {
+	for in, want := range map[string]string{
+		"/mnt/retroEMU/roms/switch/Game.nsp": "roms/switch",
+		"/data/x/roms/ps2/disc/Game.iso":     "roms/ps2/disc",
+		"/weird/path/Game.bin":               "/weird/path",
+	} {
+		if got := relDir(in); got != want {
+			t.Errorf("relDir(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestMetaInt(t *testing.T) {
+	if metaInt(float64(7)) != 7 || metaInt(int64(7)) != 7 || metaInt(int(7)) != 7 || metaInt("x") != 0 {
+		t.Error("metaInt coercion wrong")
 	}
 }

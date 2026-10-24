@@ -38,7 +38,7 @@ func main() {
 	var virt httpapi.VirtualService
 	switch {
 	case cfg.DownloaderConfig != "":
-		svc, err := downloadsvc.LoadAndStart(cfg.DownloaderConfig)
+		svc, err := downloadsvc.LoadAndStart(cfg.DownloaderConfig, st)
 		if err != nil {
 			log.Fatalf("downloader: %v", err)
 		}

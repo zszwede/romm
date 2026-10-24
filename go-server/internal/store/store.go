@@ -8,6 +8,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -360,5 +362,34 @@ func (s *Store) EnrichFromGamelist(ctx context.Context, platformID int64, fsName
 		    updated_at = NOW()
 		WHERE platform_id = ? AND fs_name = ?`,
 		name, summary, platformID, fsName)
+	return err
+}
+
+// --- virtual download completion (apply a finished job to the rom) ---
+
+var storeTagRE = regexp.MustCompile(`\([^)]*\)|\[[^\]]*\]`)
+
+// ApplyDownloaded turns a virtual rom into a physical one after its download+
+// merge completed: records the delivered file and clears the virtual/download
+// state. dir is library-relative (e.g. "roms/switch"); name is the file.
+func (s *Store) ApplyDownloaded(ctx context.Context, romID int64, dir, name string, size int64) error {
+	return applyDownloaded(ctx, s.DB, romID, dir, name, size)
+}
+
+func applyDownloaded(ctx context.Context, e execer, romID int64, dir, name string, size int64) error {
+	ext := strings.TrimPrefix(filepath.Ext(name), ".")
+	noExt := strings.TrimSuffix(name, filepath.Ext(name))
+	noTags := strings.Join(strings.Fields(storeTagRE.ReplaceAllString(noExt, " ")), " ")
+	fph := hash.FullPathHash(dir, name)
+	_, err := e.ExecContext(ctx, `
+		UPDATE roms SET
+			is_virtual = 0,
+			missing_from_fs = 0,
+			fs_path = ?, fs_name = ?, fs_name_no_ext = ?, fs_name_no_tags = ?,
+			fs_extension = ?, fs_size_bytes = ?, full_path_hash = ?,
+			download_status = NULL,
+			updated_at = NOW()
+		WHERE id = ?`,
+		dir, name, noExt, noTags, ext, size, fph, romID)
 	return err
 }
