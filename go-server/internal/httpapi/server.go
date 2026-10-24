@@ -23,6 +23,7 @@ import (
 	"github.com/zszwede/romm-go/internal/auth"
 	"github.com/zszwede/romm-go/internal/deviceauth"
 	"github.com/zszwede/romm-go/internal/metadata"
+	"github.com/zszwede/romm-go/internal/netplay"
 	"github.com/zszwede/romm-go/internal/oidc"
 	"github.com/zszwede/romm-go/internal/scan"
 	"github.com/zszwede/romm-go/internal/store"
@@ -112,6 +113,7 @@ type Server struct {
 	flows       *deviceauth.Store
 	oidc        *oidc.Provider
 	oidcUsers   oidc.UserStore
+	netplay     *netplay.Hub
 	mux         *http.ServeMux
 }
 
@@ -130,6 +132,10 @@ func New(d Deps) *Server {
 		oidcUsers:  d.OIDCUsers,
 		mux:        http.NewServeMux(),
 	}
+	// Netplay signaling hub. The room store + relay logic live here; the
+	// Socket.IO wire transport that drives open/join is the one unbuilt seam,
+	// so for now the hub is fed only by tests and the REST list reflects it.
+	s.netplay = netplay.NewHub(netplay.NewRoomStore(), netplayNoopEmitter{}, denyAllAuthz{})
 	if d.ScanRoot != "" {
 		s.libraryRoot = filepath.Dir(d.ScanRoot)
 	}
@@ -185,6 +191,9 @@ func (s *Server) routes() {
 	// provider is configured; otherwise both return 404.
 	s.mux.HandleFunc("GET /api/auth/login/openid", s.oidcLogin)
 	s.mux.HandleFunc("GET /api/auth/oauth/openid", s.oidcCallback)
+
+	// Netplay: list joinable rooms for a ROM.
+	s.mux.HandleFunc("GET /api/netplay/list", s.netplayList)
 
 	// Music playlists.
 	s.mux.HandleFunc("GET /api/music/playlists", s.listPlaylists)
