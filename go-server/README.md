@@ -16,7 +16,7 @@ Endpoints: `GET /api/heartbeat`, `GET /api/roms?platform_id=&limit=`.
 1. ✅ skeleton + DB + static serving + heartbeat/roms (read-only)
 2. ✅ core write API (roms/platforms/collections, rom_user) + JWT auth compatible
    with the current `ROMM_AUTH_SECRET_KEY`
-3. scanner + native hashing (✅ internal/hash) + ES-DE gamelists + in-process worker queue (drops Redis)
+3. ✅ scanner + native hashing + in-process worker queue (drops Redis); ES-DE gamelist metadata ingest TODO
 4. metadata providers (IGDB, ScreenScraper, Hasheous first)
 5. absorb RommDownloader (virtual-download dispatch/queue/merge) into this binary
 6. long tail (saves/states, play sessions, streaming, OIDC) — only what's used

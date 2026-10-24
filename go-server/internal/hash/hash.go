@@ -8,12 +8,21 @@ package hash
 import (
 	"crypto/md5"
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"hash/crc32"
 	"io"
 	"os"
 )
+
+// FullPathHash reproduces RomM's compute_full_path_hash: sha256 hex of
+// "<fs_path>/<fs_name>". It keys the unique (platform_id, full_path_hash)
+// index used to upsert scanned roms.
+func FullPathHash(fsPath, fsName string) string {
+	sum := sha256.Sum256([]byte(fsPath + "/" + fsName))
+	return hex.EncodeToString(sum[:])
+}
 
 // Digests holds the hex-encoded checksums, matching the DB column widths
 // (crc 8 hex chars, md5 32, sha1 40).

@@ -12,6 +12,8 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/zszwede/romm-go/internal/hash"
+	"github.com/zszwede/romm-go/internal/scan"
 )
 
 type Store struct{ DB *sql.DB }
@@ -248,4 +250,70 @@ func (s *Store) SetRomUserProps(ctx context.Context, userID, romID int64, p RomU
 		return 0, err
 	}
 	return len(cols), nil
+}
+
+// --- scan support (Phase 3) ---
+
+// ListPlatformDirs returns the (id, fs_slug) of every platform that has a
+// folder name, for the scanner to walk.
+func (s *Store) ListPlatformDirs(ctx context.Context) ([]scan.PlatformDir, error) {
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT id, fs_slug FROM platforms WHERE fs_slug IS NOT NULL AND fs_slug <> ''`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []scan.PlatformDir{}
+	for rows.Next() {
+		var d scan.PlatformDir
+		if err := rows.Scan(&d.ID, &d.FsSlug); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// Upsert inserts a scanned rom or refreshes an existing one (matched on the
+// unique (platform_id, full_path_hash)). On conflict it updates size/hashes and
+// clears missing_from_fs, but never clobbers the name/metadata of a rom that
+// was already identified.
+func (s *Store) Upsert(ctx context.Context, r scan.Record) error {
+	return upsertRom(ctx, s.DB, r)
+}
+
+// execer is satisfied by both *sql.DB and *sql.Tx, so the upsert can run inside
+// a rolled-back transaction in integration tests.
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+func upsertRom(ctx context.Context, e execer, r scan.Record) error {
+	fph := hash.FullPathHash(r.FsPath, r.FsName)
+	_, err := e.ExecContext(ctx, `
+		INSERT INTO roms
+			(platform_id, fs_name, fs_name_no_tags, fs_extension, fs_path,
+			 fs_name_no_ext, fs_size_bytes, full_path_hash, name,
+			 crc_hash, md5_hash, sha1_hash, missing_from_fs, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NOW(), NOW())
+		ON DUPLICATE KEY UPDATE
+			fs_size_bytes = VALUES(fs_size_bytes),
+			crc_hash = VALUES(crc_hash),
+			md5_hash = VALUES(md5_hash),
+			sha1_hash = VALUES(sha1_hash),
+			missing_from_fs = 0,
+			updated_at = NOW()`,
+		r.PlatformID, r.FsName, r.FsNameNoTags, r.FsExtension, r.FsPath,
+		r.FsNameNoExt, r.SizeBytes, fph, r.FsNameNoExt,
+		nz(r.Digests.CRC32), nz(r.Digests.MD5), nz(r.Digests.SHA1))
+	return err
+}
+
+// nz turns an empty hash into NULL so an un-hashed inventory pass doesn't
+// store empty strings in the hash columns.
+func nz(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }

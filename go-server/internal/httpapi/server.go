@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/zszwede/romm-go/internal/auth"
+	"github.com/zszwede/romm-go/internal/scan"
 	"github.com/zszwede/romm-go/internal/store"
+	"github.com/zszwede/romm-go/internal/worker"
 	"github.com/zszwede/romm-go/web"
 )
 
@@ -32,16 +34,20 @@ type DataStore interface {
 	GetRom(ctx context.Context, id int64) (*store.RomDetail, error)
 	UserIDByUsername(ctx context.Context, username string) (int64, error)
 	SetRomUserProps(ctx context.Context, userID, romID int64, p store.RomUserProps) (int, error)
+	ListPlatformDirs(ctx context.Context) ([]scan.PlatformDir, error)
+	Upsert(ctx context.Context, r scan.Record) error
 }
 
 type Server struct {
-	st     DataStore
-	secret string
-	mux    *http.ServeMux
+	st       DataStore
+	secret   string
+	queue    *worker.Queue
+	scanRoot string // ES-DE roms root, e.g. ROMM_BASE_PATH/library/roms
+	mux      *http.ServeMux
 }
 
-func New(st DataStore, authSecret string) *Server {
-	s := &Server{st: st, secret: authSecret, mux: http.NewServeMux()}
+func New(st DataStore, authSecret string, queue *worker.Queue, scanRoot string) *Server {
+	s := &Server{st: st, secret: authSecret, queue: queue, scanRoot: scanRoot, mux: http.NewServeMux()}
 	s.routes()
 	return s
 }
@@ -54,6 +60,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/roms", s.listRoms)
 	s.mux.HandleFunc("GET /api/roms/{id}", s.getRom)
 	s.mux.HandleFunc("PUT /api/roms/{id}/props", s.setRomProps)
+	s.mux.HandleFunc("POST /api/scan", s.triggerScan)
+	s.mux.HandleFunc("GET /api/scan", s.listScans)
+	s.mux.HandleFunc("GET /api/scan/{id}", s.scanStatus)
 
 	sub, err := fs.Sub(web.Static, "static")
 	if err != nil {
@@ -153,6 +162,52 @@ func (s *Server) setRomProps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"updated": n})
+}
+
+// triggerScan enqueues a background library scan. ?hash=0 skips hashing for a
+// fast inventory pass. Requires a valid bearer token.
+func (s *Server) triggerScan(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.authUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if s.queue == nil || s.scanRoot == "" {
+		writeErr(w, http.StatusServiceUnavailable, "scanning not configured")
+		return
+	}
+	doHash := r.URL.Query().Get("hash") != "0"
+	root := s.scanRoot
+	id := s.queue.Enqueue("library-scan", func(ctx context.Context) error {
+		dirs, err := s.st.ListPlatformDirs(ctx)
+		if err != nil {
+			return err
+		}
+		_, err = scan.Platforms(ctx, root, dirs, s.st, doHash)
+		return err
+	})
+	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": id})
+}
+
+func (s *Server) listScans(w http.ResponseWriter, r *http.Request) {
+	if s.queue == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"items": []any{}})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": s.queue.List()})
+}
+
+func (s *Server) scanStatus(w http.ResponseWriter, r *http.Request) {
+	if s.queue == nil {
+		writeErr(w, http.StatusNotFound, "no such job")
+		return
+	}
+	id := int64(atoiDefault(r.PathValue("id"), 0))
+	job, ok := s.queue.Get(id)
+	if !ok {
+		writeErr(w, http.StatusNotFound, "no such job")
+		return
+	}
+	writeJSON(w, http.StatusOK, job)
 }
 
 // authUser extracts and verifies the Bearer access token, if any.

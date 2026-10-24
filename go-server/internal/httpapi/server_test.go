@@ -5,62 +5,84 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/zszwede/romm-go/internal/scan"
 	"github.com/zszwede/romm-go/internal/store"
+	"github.com/zszwede/romm-go/internal/worker"
 )
 
 const testSecret = "unit-test-secret"
 
-// fakeStore implements DataStore for handler tests, no DB.
 type fakeStore struct {
 	counts    store.Counts
 	platforms []store.Platform
 	roms      map[int64]*store.RomDetail
 	userID    int64
+	dirs      []scan.PlatformDir
 
+	mu               sync.Mutex
 	gotUID, gotRomID int64
 	gotProps         store.RomUserProps
 	propsCalls       int
+	upserts          []scan.Record
 }
 
 func (f *fakeStore) Counts(context.Context) (store.Counts, error) { return f.counts, nil }
 func (f *fakeStore) ListRoms(context.Context, int64, int) ([]store.Rom, error) {
 	return []store.Rom{{ID: 1, Name: "A"}}, nil
 }
-func (f *fakeStore) ListPlatforms(context.Context) ([]store.Platform, error) {
-	return f.platforms, nil
-}
+func (f *fakeStore) ListPlatforms(context.Context) ([]store.Platform, error) { return f.platforms, nil }
 func (f *fakeStore) GetRom(_ context.Context, id int64) (*store.RomDetail, error) {
 	return f.roms[id], nil
 }
-func (f *fakeStore) UserIDByUsername(context.Context, string) (int64, error) {
-	return f.userID, nil
-}
+func (f *fakeStore) UserIDByUsername(context.Context, string) (int64, error) { return f.userID, nil }
 func (f *fakeStore) SetRomUserProps(_ context.Context, uid, romID int64, p store.RomUserProps) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.gotUID, f.gotRomID, f.gotProps, f.propsCalls = uid, romID, p, f.propsCalls+1
 	return 1, nil
 }
+func (f *fakeStore) ListPlatformDirs(context.Context) ([]scan.PlatformDir, error) { return f.dirs, nil }
+func (f *fakeStore) Upsert(_ context.Context, r scan.Record) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.upserts = append(f.upserts, r)
+	return nil
+}
+func (f *fakeStore) upsertCount() int { f.mu.Lock(); defer f.mu.Unlock(); return len(f.upserts) }
 
-func newTestServer() (*Server, *fakeStore) {
+func newTestServer(t *testing.T) (*Server, *fakeStore) {
+	t.Helper()
 	fs := &fakeStore{
 		counts:    store.Counts{Roms: 3, Platforms: 2},
 		platforms: []store.Platform{{ID: 1, Name: "Switch", RomCount: 2}},
 		roms:      map[int64]*store.RomDetail{7: {ID: 7, Name: "Zelda", PlatformID: 1}},
 		userID:    42,
+		dirs:      []scan.PlatformDir{{ID: 28, FsSlug: "switch"}},
 	}
-	return New(fs, testSecret), fs
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "switch"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "switch", "Zelda.nsp"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	q := worker.New(context.Background(), 2, 16)
+	return New(fs, testSecret, q, root), fs
 }
 
 func token(t *testing.T, secret, typ, iss string) string {
 	t.Helper()
 	s, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"sub": "xiam", "iss": iss, "type": typ,
-		"scopes": "roms.read roms.write",
-		"exp":    time.Now().Add(time.Hour).Unix(),
+		"scopes": "roms.read roms.write", "exp": time.Now().Add(time.Hour).Unix(),
 	}).SignedString([]byte(secret))
 	if err != nil {
 		t.Fatal(err)
@@ -84,7 +106,7 @@ func do(s *Server, method, path, auth, body string) *httptest.ResponseRecorder {
 }
 
 func TestHeartbeat(t *testing.T) {
-	s, _ := newTestServer()
+	s, _ := newTestServer(t)
 	w := do(s, "GET", "/api/heartbeat", "", "")
 	if w.Code != 200 {
 		t.Fatalf("code %d", w.Code)
@@ -97,7 +119,7 @@ func TestHeartbeat(t *testing.T) {
 }
 
 func TestPlatforms(t *testing.T) {
-	s, _ := newTestServer()
+	s, _ := newTestServer(t)
 	w := do(s, "GET", "/api/platforms", "", "")
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "Switch") {
 		t.Fatalf("code %d body %s", w.Code, w.Body.String())
@@ -105,7 +127,7 @@ func TestPlatforms(t *testing.T) {
 }
 
 func TestGetRom(t *testing.T) {
-	s, _ := newTestServer()
+	s, _ := newTestServer(t)
 	if w := do(s, "GET", "/api/roms/7", "", ""); w.Code != 200 || !strings.Contains(w.Body.String(), "Zelda") {
 		t.Errorf("found: code %d body %s", w.Code, w.Body.String())
 	}
@@ -115,17 +137,14 @@ func TestGetRom(t *testing.T) {
 }
 
 func TestSetRomProps_AuthRequired(t *testing.T) {
-	s, fs := newTestServer()
-	// No token.
+	s, fs := newTestServer(t)
 	if w := do(s, "PUT", "/api/roms/7/props", "", `{"status":"finished"}`); w.Code != 401 {
 		t.Errorf("no token: want 401 got %d", w.Code)
 	}
-	// Token signed with the wrong secret.
-	if w := do(s, "PUT", "/api/roms/7/props", token(t, "wrong", "access", "romm:oauth"), `{"status":"finished"}`); w.Code != 401 {
+	if w := do(s, "PUT", "/api/roms/7/props", token(t, "wrong", "access", "romm:oauth"), `{"status":"x"}`); w.Code != 401 {
 		t.Errorf("bad sig: want 401 got %d", w.Code)
 	}
-	// Refresh token (wrong type) must not authorize a write.
-	if w := do(s, "PUT", "/api/roms/7/props", token(t, testSecret, "refresh", "romm:oauth"), `{"status":"finished"}`); w.Code != 401 {
+	if w := do(s, "PUT", "/api/roms/7/props", token(t, testSecret, "refresh", "romm:oauth"), `{"status":"x"}`); w.Code != 401 {
 		t.Errorf("refresh token: want 401 got %d", w.Code)
 	}
 	if fs.propsCalls != 0 {
@@ -134,23 +153,68 @@ func TestSetRomProps_AuthRequired(t *testing.T) {
 }
 
 func TestSetRomProps_OK(t *testing.T) {
-	s, fs := newTestServer()
-	status := "finished"
+	s, fs := newTestServer(t)
 	w := do(s, "PUT", "/api/roms/7/props", token(t, testSecret, "access", "romm:oauth"),
 		`{"status":"finished","backlogged":true}`)
 	if w.Code != 200 {
 		t.Fatalf("want 200 got %d body %s", w.Code, w.Body.String())
 	}
-	if fs.propsCalls != 1 {
-		t.Fatalf("store called %d times", fs.propsCalls)
+	if fs.propsCalls != 1 || fs.gotUID != 42 || fs.gotRomID != 7 {
+		t.Fatalf("calls=%d uid=%d rom=%d", fs.propsCalls, fs.gotUID, fs.gotRomID)
 	}
-	if fs.gotUID != 42 || fs.gotRomID != 7 {
-		t.Errorf("uid=%d romID=%d, want 42/7", fs.gotUID, fs.gotRomID)
-	}
-	if fs.gotProps.Status == nil || *fs.gotProps.Status != status {
-		t.Errorf("status prop = %v, want %q", fs.gotProps.Status, status)
+	if fs.gotProps.Status == nil || *fs.gotProps.Status != "finished" {
+		t.Errorf("status = %v", fs.gotProps.Status)
 	}
 	if fs.gotProps.Backlogged == nil || !*fs.gotProps.Backlogged {
-		t.Errorf("backlogged prop not set true: %v", fs.gotProps.Backlogged)
+		t.Errorf("backlogged not set")
 	}
+}
+
+func TestScan_AuthAndRun(t *testing.T) {
+	s, fs := newTestServer(t)
+	// Unauthenticated -> 401.
+	if w := do(s, "POST", "/api/scan", "", ""); w.Code != 401 {
+		t.Fatalf("no token: want 401 got %d", w.Code)
+	}
+	// Authenticated -> 202 + job id.
+	w := do(s, "POST", "/api/scan", token(t, testSecret, "access", "romm:oauth"), "")
+	if w.Code != 202 {
+		t.Fatalf("want 202 got %d body %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		JobID int64 `json:"job_id"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.JobID == 0 {
+		t.Fatal("no job id")
+	}
+	// Wait for the scan job to finish, then assert the temp-dir rom was upserted.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		sw := do(s, "GET", "/api/scan/"+itoa(resp.JobID), "", "")
+		if strings.Contains(sw.Body.String(), `"state":"done"`) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if fs.upsertCount() != 1 {
+		t.Fatalf("upserts = %d, want 1", fs.upsertCount())
+	}
+	if fs.upserts[0].FsName != "Zelda.nsp" || fs.upserts[0].PlatformID != 28 {
+		t.Errorf("upsert record wrong: %+v", fs.upserts[0])
+	}
+}
+
+func itoa(n int64) string {
+	if n == 0 {
+		return "0"
+	}
+	var b [20]byte
+	i := len(b)
+	for n > 0 {
+		i--
+		b[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(b[i:])
 }
