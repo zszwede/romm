@@ -65,7 +65,9 @@ type fakeStore struct {
 	assets    []store.Asset
 	assetKind string
 
-	raID int
+	raID      int
+	playlists []store.Playlist
+	tracks    []store.Track
 }
 
 func (f *fakeStore) Counts(context.Context) (store.Counts, error) { return f.counts, nil }
@@ -82,6 +84,32 @@ func (f *fakeStore) GetRomLocation(context.Context, int64) (string, string, bool
 func (f *fakeStore) GetRomRAID(context.Context, int64) (int, bool, error) {
 	return f.raID, f.raID > 0, nil
 }
+func (f *fakeStore) ListPlaylists(context.Context, int64) ([]store.Playlist, error) {
+	return f.playlists, nil
+}
+func (f *fakeStore) CreatePlaylist(_ context.Context, userID int64, name, desc string, pub bool) (int64, error) {
+	id := int64(len(f.playlists) + 1)
+	f.playlists = append(f.playlists, store.Playlist{ID: id, Name: name, Description: desc, IsPublic: pub, UserID: userID})
+	return id, nil
+}
+func (f *fakeStore) DeletePlaylist(_ context.Context, _, id int64) (bool, error) {
+	for i, p := range f.playlists {
+		if p.ID == id {
+			f.playlists = append(f.playlists[:i], f.playlists[i+1:]...)
+			return true, nil
+		}
+	}
+	return false, nil
+}
+func (f *fakeStore) ListPlaylistTracks(context.Context, int64) ([]store.Track, error) {
+	return f.tracks, nil
+}
+func (f *fakeStore) AddTrack(_ context.Context, playlistID, romFileID int64) (int64, error) {
+	id := int64(len(f.tracks) + 1)
+	f.tracks = append(f.tracks, store.Track{ID: id, PlaylistID: playlistID, RomFileID: romFileID, Position: len(f.tracks)})
+	return id, nil
+}
+func (f *fakeStore) RemoveTrack(context.Context, int64) error                { return nil }
 func (f *fakeStore) UserIDByUsername(context.Context, string) (int64, error) { return f.userID, nil }
 func (f *fakeStore) SetRomUserProps(_ context.Context, uid, romID int64, p store.RomUserProps) (int, error) {
 	f.mu.Lock()
@@ -429,6 +457,40 @@ func TestAchievements(t *testing.T) {
 	fs.raID = 0
 	if w := do(s, "GET", "/api/roms/8/achievements?user=xiam", tok, ""); w.Code != 404 {
 		t.Errorf("no ra id: want 404 got %d", w.Code)
+	}
+}
+
+func TestMusicPlaylists(t *testing.T) {
+	fs := &fakeStore{userID: 42}
+	s := New(Deps{Store: fs, AuthSecret: testSecret})
+	tok := token(t, testSecret, "access", "romm:oauth")
+
+	if w := do(s, "POST", "/api/music/playlists", "", `{"name":"x"}`); w.Code != 401 {
+		t.Errorf("no token: want 401 got %d", w.Code)
+	}
+	if w := do(s, "POST", "/api/music/playlists", tok, `{}`); w.Code != 400 {
+		t.Errorf("missing name: want 400 got %d", w.Code)
+	}
+	// Create -> list.
+	if w := do(s, "POST", "/api/music/playlists", tok, `{"name":"Chiptunes","is_public":true}`); w.Code != 201 {
+		t.Fatalf("create: code %d body %s", w.Code, w.Body.String())
+	}
+	if w := do(s, "GET", "/api/music/playlists", tok, ""); w.Code != 200 || !strings.Contains(w.Body.String(), "Chiptunes") {
+		t.Fatalf("list: code %d body %s", w.Code, w.Body.String())
+	}
+	// Add a track -> list tracks.
+	if w := do(s, "POST", "/api/music/playlists/1/tracks", tok, `{"rom_file_id":555}`); w.Code != 201 {
+		t.Fatalf("add track: code %d body %s", w.Code, w.Body.String())
+	}
+	if w := do(s, "GET", "/api/music/playlists/1/tracks", tok, ""); w.Code != 200 || !strings.Contains(w.Body.String(), "555") {
+		t.Fatalf("list tracks: code %d body %s", w.Code, w.Body.String())
+	}
+	// Delete playlist.
+	if w := do(s, "DELETE", "/api/music/playlists/1", tok, ""); w.Code != 204 {
+		t.Errorf("delete: code %d", w.Code)
+	}
+	if w := do(s, "DELETE", "/api/music/playlists/999", tok, ""); w.Code != 404 {
+		t.Errorf("delete missing: want 404 got %d", w.Code)
 	}
 }
 

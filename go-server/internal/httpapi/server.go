@@ -64,6 +64,12 @@ type DataStore interface {
 	InsertAsset(ctx context.Context, kind string, a store.Asset) (int64, error)
 	AssetLocation(ctx context.Context, kind string, id int64) (filePath, fileName string, found bool, err error)
 	DeleteAsset(ctx context.Context, kind string, id int64) error
+	ListPlaylists(ctx context.Context, userID int64) ([]store.Playlist, error)
+	CreatePlaylist(ctx context.Context, userID int64, name, description string, isPublic bool) (int64, error)
+	DeletePlaylist(ctx context.Context, userID, id int64) (bool, error)
+	ListPlaylistTracks(ctx context.Context, playlistID int64) ([]store.Track, error)
+	AddTrack(ctx context.Context, playlistID, romFileID int64) (int64, error)
+	RemoveTrack(ctx context.Context, trackID int64) error
 }
 
 // Deps are the server's collaborators. Passed as a struct so new ones can be
@@ -153,6 +159,14 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/metadata/search", s.searchMetadata)
 	s.mux.HandleFunc("POST /api/virtual/check", s.virtualCheck)
 	s.mux.HandleFunc("POST /api/virtual/dispatch", s.virtualDispatch)
+
+	// Music playlists.
+	s.mux.HandleFunc("GET /api/music/playlists", s.listPlaylists)
+	s.mux.HandleFunc("POST /api/music/playlists", s.createPlaylist)
+	s.mux.HandleFunc("DELETE /api/music/playlists/{id}", s.deletePlaylist)
+	s.mux.HandleFunc("GET /api/music/playlists/{id}/tracks", s.listTracks)
+	s.mux.HandleFunc("POST /api/music/playlists/{id}/tracks", s.addTrack)
+	s.mux.HandleFunc("DELETE /api/music/tracks/{tid}", s.removeTrack)
 
 	// Save/state sync: identical routes for both kinds.
 	for _, kind := range []string{"saves", "states"} {
