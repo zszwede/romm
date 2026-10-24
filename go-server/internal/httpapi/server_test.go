@@ -73,6 +73,9 @@ func (f *fakeStore) SetRomUserProps(_ context.Context, uid, romID int64, p store
 	return 1, nil
 }
 func (f *fakeStore) ListPlatformDirs(context.Context) ([]scan.PlatformDir, error) { return f.dirs, nil }
+func (f *fakeStore) ListCollections(context.Context) ([]store.Collection, error) {
+	return []store.Collection{{ID: 1, Name: "Favorites", IsFavorite: true}}, nil
+}
 func (f *fakeStore) Upsert(_ context.Context, r scan.Record) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -152,6 +155,14 @@ func TestPlatforms(t *testing.T) {
 	s, _ := newTestServer(t)
 	w := do(s, "GET", "/api/platforms", "", "")
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "Switch") {
+		t.Fatalf("code %d body %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCollections(t *testing.T) {
+	s, _ := newTestServer(t)
+	w := do(s, "GET", "/api/collections", "", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "Favorites") {
 		t.Fatalf("code %d body %s", w.Code, w.Body.String())
 	}
 }

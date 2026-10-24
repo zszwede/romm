@@ -45,6 +45,7 @@ type DataStore interface {
 	SetRomUserProps(ctx context.Context, userID, romID int64, p store.RomUserProps) (int, error)
 	ListPlatformDirs(ctx context.Context) ([]scan.PlatformDir, error)
 	Upsert(ctx context.Context, r scan.Record) error
+	ListCollections(ctx context.Context) ([]store.Collection, error)
 }
 
 // Deps are the server's collaborators. Passed as a struct so new ones can be
@@ -89,6 +90,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/platforms", s.listPlatforms)
 	s.mux.HandleFunc("GET /api/roms", s.listRoms)
 	s.mux.HandleFunc("GET /api/roms/{id}", s.getRom)
+	s.mux.HandleFunc("GET /api/collections", s.listCollections)
 	s.mux.HandleFunc("PUT /api/roms/{id}/props", s.setRomProps)
 	s.mux.HandleFunc("POST /api/scan", s.triggerScan)
 	s.mux.HandleFunc("GET /api/scan", s.listScans)
@@ -140,6 +142,17 @@ func (s *Server) listRoms(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": roms, "limit": limit})
+}
+
+func (s *Server) listCollections(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	cols, err := s.st.ListCollections(ctx)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": cols})
 }
 
 func (s *Server) getRom(w http.ResponseWriter, r *http.Request) {

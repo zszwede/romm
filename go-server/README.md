@@ -1,23 +1,56 @@
 # romm-go — single-binary RomM (Go rewrite)
 
-Phase 1 scaffold. Reads the EXISTING MariaDB schema (no migration), serves a
-heartbeat + read-only roms list + an embedded static shell. One static binary;
-only dependency at runtime is MariaDB + the filesystem.
+A single static Go binary that reuses the EXISTING MariaDB schema (no data
+migration) and the filesystem. No Redis, no nginx, no Python, no sidecar — the
+only runtime dependencies are MariaDB and the ROM library on disk.
 
 ## Run
-Uses the same env vars as the Python container:
+Uses the same env var names as the Python container:
 
-    DB_HOST=192.168.1.201 DB_USER=romm-user DB_PASSWD=... DB_NAME=romm \
+    DB_HOST=192.168.1.201 DB_USER=romm-user DB_PASSWD=… DB_NAME=romm \
+    ROMM_BASE_PATH=/media/8TB/Retro/.romm \
+    ROMM_AUTH_SECRET_KEY=… IGDB_CLIENT_ID=… IGDB_CLIENT_SECRET=… \
+    MERGE_SERVICE_URL=http://rommdownloader:8090 MERGE_SERVICE_TOKEN=… \
     ROMM_GO_ADDR=:8088 go run ./cmd/romm
 
-Endpoints: `GET /api/heartbeat`, `GET /api/roms?platform_id=&limit=`.
+## Endpoints
+- `GET  /api/heartbeat` — version + live library counts
+- `GET  /api/platforms` — platforms with rom counts
+- `GET  /api/roms?platform_id=&limit=` · `GET /api/roms/{id}`
+- `GET  /api/collections`
+- `PUT  /api/roms/{id}/props` *(bearer)* — rom_user status/flags/rating
+- `POST /api/scan` *(bearer)* · `GET /api/scan` · `GET /api/scan/{id}`
+- `GET  /api/metadata/search?q=` *(bearer)*
+- `POST /api/virtual/check` · `POST /api/virtual/dispatch` *(bearer)*
+- `GET  /` — embedded static shell (Vue dist in a later step)
 
-## Roadmap
+Bearer tokens are the Python backend's own HS256 access tokens (verified with
+`ROMM_AUTH_SECRET_KEY`), so existing tokens work unchanged.
+
+## Status
+Core workflow implemented and tested (`go test -race ./...`, plus live checks
+against pve2 + IGDB):
+
 1. ✅ skeleton + DB + static serving + heartbeat/roms (read-only)
-2. ✅ core write API (roms/platforms/collections, rom_user) + JWT auth compatible
-   with the current `ROMM_AUTH_SECRET_KEY`
-3. ✅ scanner + native hashing + in-process worker queue (drops Redis); ES-DE gamelist metadata ingest TODO
-4. ✅ metadata providers — IGDB (live-tested); ScreenScraper/Hasheous slot behind the same Provider interface
-5. ✅ virtual-download orchestration — check + dispatch to the merge service (RommDownloader stays the merge worker)
-6. long tail (saves/states, play sessions, streaming, OIDC) — only what's used
-Frontend stays the built Vue dist, embedded here in a later phase.
+2. ✅ JWT auth + platforms/rom-detail reads + rom_user write
+3. ✅ in-process worker queue (drops Redis) + filesystem scanner + native
+   hashing. *(ES-DE gamelist.xml metadata ingest not yet ported.)*
+4. ✅ metadata providers — IGDB (live-tested). ScreenScraper/Hasheous slot
+   behind the same `Provider` interface when needed.
+5. ✅ virtual-download orchestration — availability check + job dispatch to the
+   merge service. The merge worker itself (extraction/switch-tool/delivery)
+   remains the RommDownloader service, as today.
+6. ✅ (scoped) collections read. **Intentionally out of the rewrite's initial
+   scope** (ported later only if used): save/state sync, play-session
+   streaming/netplay, OIDC/device-auth, music playlists, achievements,
+   in-browser ROM patching.
+
+The frontend stays the built Vue SPA, to be embedded into `web/static` (copied
+from the existing image) in place of the current placeholder.
+
+## Layout
+`cmd/romm` (main) · `internal/config` · `internal/store` (database/sql) ·
+`internal/auth` (JWT) · `internal/hash` · `internal/scan` · `internal/worker` ·
+`internal/metadata` (IGDB) · `internal/virtual` (merge-service client) ·
+`internal/httpapi` (net/http, `Deps` + `DataStore`/`VirtualService` interfaces
+for test fakes) · `web` (embed.FS).

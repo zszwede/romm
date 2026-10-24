@@ -317,3 +317,35 @@ func nz(s string) any {
 	}
 	return s
 }
+
+// --- collections (Phase 6, read) ---
+
+type Collection struct {
+	ID          int64  `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	IsPublic    bool   `json:"is_public"`
+	IsFavorite  bool   `json:"is_favorite"`
+	UserID      int64  `json:"user_id"`
+}
+
+// ListCollections returns all collections (ordered by name).
+func (s *Store) ListCollections(ctx context.Context) ([]Collection, error) {
+	rows, err := s.DB.QueryContext(ctx, `
+		SELECT id, COALESCE(name,''), COALESCE(description,''),
+		       is_public, is_favorite, COALESCE(user_id,0)
+		FROM collections ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Collection{}
+	for rows.Next() {
+		var c Collection
+		if err := rows.Scan(&c.ID, &c.Name, &c.Description, &c.IsPublic, &c.IsFavorite, &c.UserID); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
