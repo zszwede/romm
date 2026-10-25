@@ -125,6 +125,7 @@ type DataStore interface {
 	ListRomFiles(ctx context.Context, romID int64) ([]store.RomFile, error)
 	ListSiblings(ctx context.Context, romID, userID int64) ([]store.SiblingRom, error)
 	GetRomMetadata(ctx context.Context, romID int64) (*store.RomMetadata, error)
+	RomCollections(ctx context.Context, romID int64) ([]store.Collection, error)
 	UnidentifiedHashedRoms(ctx context.Context, limit int) ([]store.HashedRom, error)
 	SetHashMatchIDs(ctx context.Context, romID int64, igdb, hasheous, tgdb *int64) error
 	UpdatePlatformCustomName(ctx context.Context, id int64, customName string) (*store.Platform, error)
@@ -709,6 +710,12 @@ func (s *Server) getRom(w http.ResponseWriter, r *http.Request) {
 	extras.Files, _ = s.st.ListRomFiles(ctx, id)
 	extras.Siblings, _ = s.st.ListSiblings(ctx, id, uid)
 	extras.Meta, _ = s.st.GetRomMetadata(ctx, id)
+	extras.Collections, _ = s.st.RomCollections(ctx, id)
+	if uid > 0 {
+		extras.Saves, _ = s.st.ListAssets(ctx, "saves", id, uid)
+		extras.States, _ = s.st.ListAssets(ctx, "states", id, uid)
+		extras.Screenshots, _ = s.st.ListScreenshots(ctx, id, uid)
+	}
 	writeJSON(w, http.StatusOK, romJSON(rom, ru, uid, true, extras))
 }
 

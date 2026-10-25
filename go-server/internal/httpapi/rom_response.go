@@ -120,9 +120,13 @@ func platformDisplayName(r *store.RomFull) string {
 // (files, siblings, provider metadata). Nil for the gallery list, which does
 // not need them.
 type romExtras struct {
-	Files    []store.RomFile
-	Siblings []store.SiblingRom
-	Meta     *store.RomMetadata
+	Files       []store.RomFile
+	Siblings    []store.SiblingRom
+	Meta        *store.RomMetadata
+	Saves       []store.Asset
+	States      []store.Asset
+	Screenshots []store.Screenshot
+	Collections []store.Collection
 }
 
 // romJSON builds the full RomSchema. detail adds the DetailedRomSchema fields;
@@ -254,17 +258,24 @@ func romJSON(r *store.RomFull, ru *store.RomUser, userID int64, detail bool, ext
 			m["gamelist_metadata"] = jsonRawOrNil(md.Gamelist)
 			m["manual_metadata"] = jsonRawOrNil(md.Manual)
 			m["merged_ra_metadata"] = jsonRawOrNil(md.RA)
+			if alt := alternativeNames(md, sStr(r.Name)); len(alt) > 0 {
+				m["alternative_names"] = alt
+			}
 		}
 	}
 
 	if detail {
-		m["user_saves"] = []any{}
-		m["user_states"] = []any{}
-		m["all_user_saves"] = []any{}
-		m["all_user_states"] = []any{}
-		m["user_screenshots"] = []any{}
-		m["all_user_screenshots"] = []any{}
-		m["user_collections"] = []any{}
+		saves := assetList(extrasSaves(extras), "saves")
+		states := assetList(extrasStates(extras), "states")
+		shots := screenshotList(extras)
+		cols := collectionList(extras)
+		m["user_saves"] = saves
+		m["user_states"] = states
+		m["all_user_saves"] = saves
+		m["all_user_states"] = states
+		m["user_screenshots"] = shots
+		m["all_user_screenshots"] = shots
+		m["user_collections"] = cols
 		m["all_user_notes"] = []any{}
 		m["download_formats"] = []any{}
 		// source_urls: every place a virtual rom can be downloaded — its primary
@@ -405,4 +416,97 @@ func nfloat(n sql.NullFloat64) any {
 		return n.Float64
 	}
 	return nil
+}
+
+func extrasSaves(e *romExtras) []store.Asset {
+	if e == nil {
+		return nil
+	}
+	return e.Saves
+}
+func extrasStates(e *romExtras) []store.Asset {
+	if e == nil {
+		return nil
+	}
+	return e.States
+}
+
+// assetList serializes saves/states into the SaveSchema/StateSchema array.
+func assetList(items []store.Asset, kind string) []map[string]any {
+	out := []map[string]any{}
+	for i := range items {
+		out = append(out, assetJSON(&items[i], kind))
+	}
+	return out
+}
+
+func screenshotList(e *romExtras) []map[string]any {
+	out := []map[string]any{}
+	if e == nil {
+		return out
+	}
+	for i := range e.Screenshots {
+		out = append(out, screenshotJSON(&e.Screenshots[i]))
+	}
+	return out
+}
+
+func collectionList(e *romExtras) []map[string]any {
+	out := []map[string]any{}
+	if e == nil {
+		return out
+	}
+	for i := range e.Collections {
+		out = append(out, collectionJSON(&e.Collections[i]))
+	}
+	return out
+}
+
+// alternativeNames collects the alternate titles a rom's providers recorded
+// (igdb_metadata.alternative_names, moby_metadata.alternate_titles,
+// ss_metadata.alternative_names), dropping the displayed name and duplicates.
+func alternativeNames(md *store.RomMetadata, displayName any) []string {
+	seen := map[string]bool{}
+	if name, ok := displayName.(string); ok && name != "" {
+		seen[strings.ToLower(strings.TrimSpace(name))] = true
+	}
+	var out []string
+	add := func(raw sql.NullString, key string) {
+		if !raw.Valid || raw.String == "" {
+			return
+		}
+		var obj map[string]any
+		if json.Unmarshal([]byte(raw.String), &obj) != nil {
+			return
+		}
+		arr, ok := obj[key].([]any)
+		if !ok {
+			return
+		}
+		for _, v := range arr {
+			s, ok := v.(string)
+			if !ok {
+				s2, ok2 := v.(map[string]any)
+				if ok2 {
+					if nm, ok3 := s2["name"].(string); ok3 {
+						s = nm
+					} else if nm, ok3 := s2["title"].(string); ok3 {
+						s = nm
+					}
+				}
+				if s == "" {
+					continue
+				}
+			}
+			key := strings.ToLower(strings.TrimSpace(s))
+			if key != "" && !seen[key] {
+				seen[key] = true
+				out = append(out, s)
+			}
+		}
+	}
+	add(md.IGDB, "alternative_names")
+	add(md.Moby, "alternate_titles")
+	add(md.SS, "alternative_names")
+	return out
 }

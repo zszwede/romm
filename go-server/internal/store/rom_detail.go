@@ -86,6 +86,33 @@ func (s *Store) ListSiblings(ctx context.Context, romID, userID int64) ([]Siblin
 	return out, rows.Err()
 }
 
+// RomCollections returns the collections that contain the rom (for the detail
+// page's "in collections" section).
+func (s *Store) RomCollections(ctx context.Context, romID int64) ([]Collection, error) {
+	rows, err := s.DB.QueryContext(ctx, `
+		SELECT c.id, COALESCE(c.name,''), COALESCE(c.description,''),
+		       COALESCE(c.is_public,0), COALESCE(c.is_favorite,0), COALESCE(c.user_id,0)
+		FROM collections c
+		JOIN collections_roms cr ON cr.collection_id = c.id
+		WHERE cr.rom_id = ?
+		ORDER BY c.name`, romID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Collection
+	for rows.Next() {
+		var c Collection
+		var pub, fav int
+		if err := rows.Scan(&c.ID, &c.Name, &c.Description, &pub, &fav, &c.UserID); err != nil {
+			return nil, err
+		}
+		c.IsPublic, c.IsFavorite = pub != 0, fav != 0
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // RomMetadata holds a rom's provider metadata blobs and screenshot lists (the
 // Metadata and Media tabs). All are raw JSON text passed through to the client.
 type RomMetadata struct {
