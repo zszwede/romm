@@ -9,6 +9,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"os"
 	"path"
 	"strings"
 	"sync"
@@ -42,7 +43,16 @@ type Service struct {
 // New builds and starts the in-process service. If updater is non-nil, a poller
 // applies finished jobs back to the DB.
 func New(cfg *config.Config, updater RomUpdater) (*Service, error) {
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	// Download pipeline log (extract/decompress/merge steps, completions,
+	// failures). Goes to stderr by default (so it lands in the server log), or
+	// to ROMM_DOWNLOADER_LOG when set, for a dedicated tail-able file.
+	var logW io.Writer = os.Stderr
+	if path := os.Getenv("ROMM_DOWNLOADER_LOG"); path != "" {
+		if f, ferr := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); ferr == nil {
+			logW = f
+		}
+	}
+	log := slog.New(slog.NewTextHandler(logW, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	dl, err := download.NewManager(cfg.Hosts, log)
 	if err != nil {
 		return nil, err
