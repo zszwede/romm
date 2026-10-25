@@ -95,6 +95,9 @@ type DataStore interface {
 	AddRomsToCollection(ctx context.Context, userID, id int64, romIDs []int64) (*store.Collection, error)
 	RemoveRomsFromCollection(ctx context.Context, userID, id int64, romIDs []int64) (*store.Collection, error)
 	DeleteCollection(ctx context.Context, userID, id int64) (bool, error)
+	CreateLocalUser(ctx context.Context, username, hashedPassword, email, role string, enabled bool) (*store.UserRecord, error)
+	AdminUpdateUser(ctx context.Context, id int64, up store.AdminUserUpdate) (*store.UserRecord, error)
+	DeleteUser(ctx context.Context, id int64) (bool, error)
 }
 
 // Deps are the server's collaborators. Passed as a struct so new ones can be
@@ -266,6 +269,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/logout", s.logout)
 	s.mux.HandleFunc("GET /api/users/me", s.usersMe)
 	s.mux.HandleFunc("GET /api/users", s.listUsers)
+	s.mux.HandleFunc("POST /api/users", s.createUser)
+	s.mux.HandleFunc("POST /api/users/invite-link", s.inviteLink)
+	s.mux.HandleFunc("GET /api/users/{id}", s.getUser)
+	s.mux.HandleFunc("PUT /api/users/{id}", s.updateUser)
+	s.mux.HandleFunc("DELETE /api/users/{id}", s.deleteUser)
 
 	// Frontend bootstrap.
 	s.mux.HandleFunc("GET /api/config", s.getConfig)

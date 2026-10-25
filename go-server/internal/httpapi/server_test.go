@@ -203,6 +203,21 @@ func (f *fakeStore) RemoveRomsFromCollection(_ context.Context, userID, id int64
 func (f *fakeStore) DeleteCollection(_ context.Context, _ int64, id int64) (bool, error) {
 	return id == 10, nil
 }
+func (f *fakeStore) CreateLocalUser(_ context.Context, username, _, email, role string, enabled bool) (*store.UserRecord, error) {
+	e := email
+	return &store.UserRecord{ID: 2, Username: username, Email: &e, Role: role, Enabled: enabled}, nil
+}
+func (f *fakeStore) AdminUpdateUser(_ context.Context, id int64, up store.AdminUserUpdate) (*store.UserRecord, error) {
+	u := &store.UserRecord{ID: id, Username: "xiam", Role: "admin", Enabled: true}
+	if up.Role != nil {
+		u.Role = *up.Role
+	}
+	if up.Enabled != nil {
+		u.Enabled = *up.Enabled
+	}
+	return u, nil
+}
+func (f *fakeStore) DeleteUser(_ context.Context, id int64) (bool, error) { return id == 2, nil }
 func (f *fakeStore) UserIDByUsername(context.Context, string) (int64, error) { return f.userID, nil }
 func (f *fakeStore) SetRomUserProps(_ context.Context, uid, romID int64, p store.RomUserProps) (int, error) {
 	f.mu.Lock()
