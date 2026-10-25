@@ -69,12 +69,20 @@ func UniquePath(path string) string {
 	}
 }
 
-var reUnsafe = regexp.MustCompile(`[/\\\x00-\x1f]`)
+// reUnsafe matches characters illegal in a path component on the filesystems
+// this server writes to. It covers the POSIX set (path separators, NUL,
+// control chars) AND the FAT/exFAT/NTFS-reserved set (: * ? " < > |): the work
+// dir and the ROM library both live on an exFAT volume, where a name with a
+// colon — common in game titles ("Hitman: Absolution") — makes rename() fail
+// with EINVAL.
+var reUnsafe = regexp.MustCompile(`[/\\:*?"<>|\x00-\x1f]`)
 
-// SafeName makes a single path component out of an untrusted file name.
+// SafeName makes a single path component out of an untrusted file name. It is
+// safe on exFAT/NTFS as well as POSIX; trailing dots and spaces (also illegal
+// on FAT/NTFS) are trimmed.
 func SafeName(name string) string {
 	name = reUnsafe.ReplaceAllString(name, "_")
-	name = strings.TrimSpace(name)
+	name = strings.TrimRight(strings.TrimSpace(name), ". ")
 	if name == "" || name == "." || name == ".." {
 		return ""
 	}

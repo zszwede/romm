@@ -278,9 +278,20 @@ func (m *Manager) fetchOnce(ctx context.Context, hc *config.Host, prov Provider,
 	return dest, nil
 }
 
-// fileName: request override > Content-Disposition > URL path > slot.
+// fileName: request override > Content-Disposition > URL path > slot. When the
+// preferred name (link.Name) carries no extension, one is borrowed from the
+// Content-Disposition filename or the URL path: archive.org lists a game's file
+// as its title with no extension, but the URL is e.g. a .nsz, and the Switch
+// filter (\.(nsp|xci|nsz|xcz)$) would otherwise drop the extension-less file.
 func fileName(link Link, resp *http.Response, slot string) string {
 	if n := fsutil.SafeName(link.Name); n != "" {
+		if path.Ext(n) == "" {
+			if ext := extFromResponse(link, resp); ext != "" {
+				if withExt := fsutil.SafeName(n + ext); withExt != "" {
+					return withExt
+				}
+			}
+		}
 		return n
 	}
 	if cd := resp.Header.Get("Content-Disposition"); cd != "" {
@@ -304,6 +315,31 @@ func fileName(link Link, resp *http.Response, slot string) string {
 		}
 	}
 	return "download-" + slot
+}
+
+// extFromResponse returns a file extension (with dot) taken from the
+// Content-Disposition filename, else the response/link URL path, else "".
+func extFromResponse(link Link, resp *http.Response) string {
+	if cd := resp.Header.Get("Content-Disposition"); cd != "" {
+		if _, params, err := mime.ParseMediaType(cd); err == nil {
+			if e := path.Ext(params["filename"]); e != "" {
+				return e
+			}
+		}
+	}
+	for _, u := range []*url.URL{resp.Request.URL, mustParse(link.URL)} {
+		if u == nil {
+			continue
+		}
+		b := path.Base(u.Path)
+		if dec, err := url.PathUnescape(b); err == nil {
+			b = dec
+		}
+		if e := path.Ext(b); e != "" {
+			return e
+		}
+	}
+	return ""
 }
 
 func mustParse(s string) *url.URL {
