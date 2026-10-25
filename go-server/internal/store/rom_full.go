@@ -78,6 +78,9 @@ type RomFull struct {
 	// VirtualContents is the roms.virtual_contents JSON (base/update/DLC links);
 	// drives the download Contents card.
 	VirtualContents sql.NullString
+	// DownloadStatus is the virtual-download queue state (wanted|queued|done|
+	// failed|null); drives the "wanted"/"queued" badge.
+	DownloadStatus sql.NullString
 	// Mirrors are extra download URLs from virtual_rom_mirrors; not scanned by
 	// the main query — the detail handler fills it so source_urls can list every
 	// place the game is served from.
@@ -131,7 +134,7 @@ const romFullCols = `
 	r.crc_hash, r.md5_hash, r.sha1_hash, r.ra_hash, r.title_id,
 	r.save_target, r.save_target_layout,
 	COALESCE(r.missing_from_fs,0), COALESCE(r.is_physical,0), COALESCE(r.is_virtual,0),
-	r.source_url, r.source_hosts, r.virtual_contents,
+	r.source_url, r.source_hosts, r.virtual_contents, r.download_status,
 	r.generated_genres, r.generated_franchises, r.generated_collections, r.generated_companies,
 	r.generated_publishers, r.generated_developers, r.generated_game_modes, r.generated_age_ratings,
 	r.generated_player_count, r.generated_first_release_date, r.generated_average_rating,
@@ -153,7 +156,7 @@ func scanRomFull(row interface{ Scan(...any) error }) (*RomFull, error) {
 		&r.CRCHash, &r.MD5Hash, &r.SHA1Hash, &r.RAHash, &r.TitleID,
 		&r.SaveTarget, &r.SaveTargetLayout,
 		&missing, &physical, &virtual,
-		&r.SourceURL, &r.SourceHosts, &r.VirtualContents,
+		&r.SourceURL, &r.SourceHosts, &r.VirtualContents, &r.DownloadStatus,
 		&r.GenGenres, &r.GenFranchises, &r.GenCollections, &r.GenCompanies,
 		&r.GenPublishers, &r.GenDevelopers, &r.GenGameModes, &r.GenAgeRatings,
 		&r.GenPlayerCount, &r.GenFirstRelease, &r.GenAvgRating,

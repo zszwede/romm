@@ -230,6 +230,7 @@ func romJSON(r *store.RomFull, ru *store.RomUser, userID int64, detail bool, ext
 		"has_file_on_disk": !r.IsPhysical && !r.IsVirtual && !r.MissingFromFs,
 		"source_url":      sStr(r.SourceURL),
 		"source_hosts":    jsonArr(r.SourceHosts),
+		"download_status": sStr(r.DownloadStatus),
 
 		"rom_user": romUserJSON(ru, userID, r.ID),
 

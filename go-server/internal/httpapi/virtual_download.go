@@ -6,10 +6,14 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"net/url"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/zszwede/romm-go/internal/archiveorg"
 	"github.com/zszwede/romm-go/internal/store"
+	"github.com/zszwede/romm-go/internal/virtual"
 )
 
 // virtualAssign creates archive.org sources for a platform and kicks off a sync
@@ -113,13 +117,136 @@ func (s *Server) virtualMarkDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := int64(atoiDefault(r.PathValue("id"), 0))
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 	if err := s.st.SetDownloadStatus(ctx, id, "wanted"); err != nil {
 		writeErr(w, http.StatusInternalServerError, "update failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"msg": "Marked for download", "status": "wanted"})
+	// The D hotkey closes the loop with one keypress: when a downloader is
+	// wired, dispatch immediately (→ queued). Without one it stays "wanted" for
+	// a later dispatch or an external poll of /virtual/queued.
+	if s.virt == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"msg": "Marked for download", "status": "wanted"})
+		return
+	}
+	rom, err := s.st.GetRomFull(ctx, id)
+	if err != nil || rom == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"msg": "Marked for download", "status": "wanted"})
+		return
+	}
+	rom.Mirrors, _ = s.st.RomMirrorURLs(ctx, id)
+	var hostOrder []string
+	if s.configFile != nil {
+		hostOrder = s.configFile.Downloads.DefaultHostOrder
+	}
+	links := buildDownloadLinks(rom, hostOrder)
+	if len(links) == 0 {
+		writeJSON(w, http.StatusConflict, map[string]any{"msg": "No downloadable URL", "status": "wanted"})
+		return
+	}
+	job := virtual.Job{
+		System: rom.PlatformFsSlug, Name: rom.Name.String,
+		Links: links, RomID: id, PlatformID: rom.PlatformID,
+	}
+	if _, err := s.virt.Dispatch(ctx, job); err != nil {
+		log.Printf("mark-download dispatch rom %d failed, left wanted: %v", id, err)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"msg": "Flagged (dispatch failed; will retry)", "status": "wanted", "dispatch_error": err.Error()})
+		return
+	}
+	_ = s.st.SetDownloadStatus(ctx, id, "queued")
+	writeJSON(w, http.StatusOK, map[string]any{"msg": "Dispatched", "status": "queued"})
+}
+
+// downloadItem mirrors one entry of a rom's virtual_contents.
+type downloadItem struct {
+	URL      string `json:"url"`
+	Name     string `json:"name"`
+	Category string `json:"category"`
+	Version  string `json:"version"`
+	Host     string `json:"host"`
+	Part     int    `json:"part"`
+}
+
+// buildDownloadLinks produces the ordered link set to dispatch for a rom: base
+// parts + updates + DLC from virtual_contents (or the source URLs as a single
+// base when none captured), de-duplicated and ordered base→update→DLC with the
+// preferred host first within each group. Mirrors select_download_items.
+func buildDownloadLinks(rom *store.RomFull, hostOrder []string) []virtual.Link {
+	var items []downloadItem
+	if rom.VirtualContents.Valid && rom.VirtualContents.String != "" {
+		_ = json.Unmarshal([]byte(rom.VirtualContents.String), &items)
+	}
+	if len(items) == 0 {
+		for _, u := range append([]string{rom.SourceURL.String}, rom.Mirrors...) {
+			if u != "" {
+				items = append(items, downloadItem{URL: u, Name: rom.Name.String, Category: "base", Host: hostOf(u)})
+			}
+		}
+	}
+	seen := map[string]bool{}
+	uniq := make([]downloadItem, 0, len(items))
+	for _, it := range items {
+		if it.URL != "" && !seen[it.URL] {
+			seen[it.URL] = true
+			if it.Host == "" {
+				it.Host = hostOf(it.URL)
+			}
+			uniq = append(uniq, it)
+		}
+	}
+	lowerOrder := make([]string, len(hostOrder))
+	for i, h := range hostOrder {
+		lowerOrder[i] = strings.ToLower(h)
+	}
+	hostRank := func(h string) int {
+		h = strings.ToLower(h)
+		for i, o := range lowerOrder {
+			if o != "" && strings.Contains(h, o) {
+				return i
+			}
+		}
+		return len(lowerOrder)
+	}
+	sort.SliceStable(uniq, func(a, b int) bool {
+		if ca, cb := catRank(uniq[a].Category), catRank(uniq[b].Category); ca != cb {
+			return ca < cb
+		}
+		if ra, rb := hostRank(uniq[a].Host), hostRank(uniq[b].Host); ra != rb {
+			return ra < rb
+		}
+		return uniq[a].Part < uniq[b].Part
+	})
+	out := make([]virtual.Link, 0, len(uniq))
+	for _, it := range uniq {
+		cat := it.Category
+		if cat == "" {
+			cat = "base"
+		}
+		out = append(out, virtual.Link{URL: it.URL, Name: it.Name, Category: cat, Version: it.Version})
+	}
+	return out
+}
+
+func catRank(c string) int {
+	switch strings.ToLower(c) {
+	case "base", "base_game", "game", "":
+		return 0
+	case "update", "patch":
+		return 1
+	case "dlc":
+		return 2
+	default:
+		return 3
+	}
+}
+
+func hostOf(raw string) string {
+	if u, err := url.Parse(raw); err == nil {
+		return u.Host
+	}
+	return ""
 }
 
 // virtualMerge folds several same-game roms into one keeper (the duplicate-merge
