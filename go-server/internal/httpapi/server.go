@@ -86,6 +86,10 @@ type DataStore interface {
 	CountRoms(ctx context.Context, f store.RomFilter) (int64, error)
 	RomIDIndex(ctx context.Context, f store.RomFilter, orderBy, orderDir string) ([]int64, map[string]int, error)
 	GetRomUser(ctx context.Context, userID, romID int64) (*store.RomUser, error)
+	CreateDevice(ctx context.Context, userID int64, in store.DeviceCreate) (*store.Device, error)
+	GetDevice(ctx context.Context, userID int64, id string) (*store.Device, error)
+	ListDevices(ctx context.Context, userID int64) ([]store.Device, error)
+	DeleteDevice(ctx context.Context, userID int64, id string) (bool, error)
 }
 
 // Deps are the server's collaborators. Passed as a struct so new ones can be
@@ -220,6 +224,13 @@ func (s *Server) routes() {
 	// Socket.IO real-time transport (scan progress, live events).
 	s.mux.HandleFunc("GET /ws/socket.io/", s.sockets.Handler)
 
+	// Sync devices.
+	s.mux.HandleFunc("POST /api/devices", s.registerDevice)
+	s.mux.HandleFunc("GET /api/devices", s.listDevices)
+	s.mux.HandleFunc("GET /api/devices/online", s.onlineDevices)
+	s.mux.HandleFunc("GET /api/devices/{id}", s.getDevice)
+	s.mux.HandleFunc("DELETE /api/devices/{id}", s.deleteDevice)
+
 	// Session auth + identity.
 	s.mux.HandleFunc("POST /api/login", s.login)
 	s.mux.HandleFunc("POST /api/logout", s.logout)
@@ -237,6 +248,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/tasks/status", s.getTasksStatus)
 	s.mux.HandleFunc("GET /api/streaming/config", s.getStreamingConfig)
 	s.mux.HandleFunc("GET /api/roms/random", s.getRandomRom)
+	s.mux.HandleFunc("GET /api/firmware", s.getFirmware)
 
 	// Music playlists.
 	s.mux.HandleFunc("GET /api/music/playlists", s.listPlaylists)

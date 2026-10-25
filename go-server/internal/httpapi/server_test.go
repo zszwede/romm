@@ -168,6 +168,23 @@ func (f *fakeStore) GetRomUser(context.Context, int64, int64) (*store.RomUser, e
 }
 
 func toNullStr(s string) sql.NullString { return sql.NullString{String: s, Valid: true} }
+
+func (f *fakeStore) CreateDevice(_ context.Context, userID int64, in store.DeviceCreate) (*store.Device, error) {
+	n := in.Name
+	return &store.Device{ID: "dev-1", UserID: userID, Name: &n, SyncMode: "api", SyncEnabled: true}, nil
+}
+func (f *fakeStore) GetDevice(_ context.Context, userID int64, id string) (*store.Device, error) {
+	if id == "dev-1" {
+		return &store.Device{ID: "dev-1", UserID: userID, SyncMode: "api"}, nil
+	}
+	return nil, nil
+}
+func (f *fakeStore) ListDevices(context.Context, int64) ([]store.Device, error) {
+	return []store.Device{}, nil
+}
+func (f *fakeStore) DeleteDevice(_ context.Context, _ int64, id string) (bool, error) {
+	return id == "dev-1", nil
+}
 func (f *fakeStore) UserIDByUsername(context.Context, string) (int64, error) { return f.userID, nil }
 func (f *fakeStore) SetRomUserProps(_ context.Context, uid, romID int64, p store.RomUserProps) (int, error) {
 	f.mu.Lock()

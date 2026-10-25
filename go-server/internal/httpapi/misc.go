@@ -53,6 +53,16 @@ func (s *Server) getSmartCollections(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, []any{})
 }
 
+// getFirmware returns platform BIOS/firmware (none in this build) as a bare
+// array (list[FirmwareSchema]).
+func (s *Server) getFirmware(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.authUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	writeJSON(w, http.StatusOK, []any{})
+}
+
 // getVirtualCollections returns virtual (auto-grouped) collections (none in
 // this build).
 func (s *Server) getVirtualCollections(w http.ResponseWriter, r *http.Request) {
