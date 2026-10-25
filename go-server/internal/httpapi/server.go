@@ -101,6 +101,8 @@ type DataStore interface {
 	CreateLocalUser(ctx context.Context, username, hashedPassword, email, role string, enabled bool) (*store.UserRecord, error)
 	AdminUpdateUser(ctx context.Context, id int64, up store.AdminUserUpdate) (*store.UserRecord, error)
 	DeleteUser(ctx context.Context, id int64) (bool, error)
+	SetDownloadStatus(ctx context.Context, romID int64, status string) error
+	DownloadQueue(ctx context.Context) ([]store.QueuedRom, error)
 }
 
 // Deps are the server's collaborators. Passed as a struct so new ones can be
@@ -241,6 +243,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/metadata/search", s.searchMetadata)
 	s.mux.HandleFunc("POST /api/virtual/check", s.virtualCheck)
 	s.mux.HandleFunc("POST /api/virtual/dispatch", s.virtualDispatch)
+	s.mux.HandleFunc("GET /api/virtual/queued", s.virtualQueued)
+	s.mux.HandleFunc("POST /api/virtual/roms/{id}/mark-download", s.virtualMarkDownload)
+	s.mux.HandleFunc("DELETE /api/virtual/roms/{id}/mark-download", s.virtualUnmarkDownload)
 
 	// Device authorization flow (RFC 8628-style). init/token are open; the
 	// approval endpoints require the user's bearer token.

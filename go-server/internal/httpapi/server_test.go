@@ -218,6 +218,10 @@ func (f *fakeStore) AdminUpdateUser(_ context.Context, id int64, up store.AdminU
 	return u, nil
 }
 func (f *fakeStore) DeleteUser(_ context.Context, id int64) (bool, error) { return id == 2, nil }
+func (f *fakeStore) SetDownloadStatus(context.Context, int64, string) error { return nil }
+func (f *fakeStore) DownloadQueue(context.Context) ([]store.QueuedRom, error) {
+	return []store.QueuedRom{{RomID: 5, PlatformID: 1, Name: "x.nsp", Status: "wanted"}}, nil
+}
 func (f *fakeStore) UserIDByUsername(context.Context, string) (int64, error) { return f.userID, nil }
 func (f *fakeStore) SetRomUserProps(_ context.Context, uid, romID int64, p store.RomUserProps) (int, error) {
 	f.mu.Lock()
