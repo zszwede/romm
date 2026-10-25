@@ -58,6 +58,10 @@ var (
 	reNumbered1  = regexp.MustCompile(`(?i)\.(7z|zip|rar|tar)\.0*1$`)
 	reNumberedN  = regexp.MustCompile(`(?i)\.(7z|zip|rar|tar)\.\d+$`)
 	reArchiveExt = regexp.MustCompile(`(?i)\.(rar|zip|7z|gz|tgz|xz|bz2|zst|tar)$`)
+	// rePartNum matches a "PartN" multi-volume name (RommDownloader splits large
+	// games into "... Part1"/"Part2", often with no .rar extension): a separator,
+	// "part", leading zeros, then the volume number, and an optional .rar.
+	rePartNum = regexp.MustCompile(`(?i)[ ._-]part0*(\d+)(\.rar)?$`)
 )
 
 // classify: "first" = feed to 7z, "volume" = part of a set, "" = not an archive.
@@ -71,6 +75,19 @@ func (e *extract) classify(path string) string {
 		return "first"
 	case reRarPartN.MatchString(n), reRarOld.MatchString(n), reZipSplit.MatchString(n), reNumberedN.MatchString(n):
 		return "volume"
+	}
+	// "PartN" naming without a standard extension (e.g. "... - Part2"): a RAR
+	// multi-volume set. Part 1 is the first volume; the rest are continuations
+	// (which carry the RAR signature too, so they'd otherwise look like separate
+	// archives and fail to extract standalone). Gate on the archive magic so a
+	// non-archive "Part2" is not misclassified.
+	if m := rePartNum.FindStringSubmatch(n); m != nil && fsutil.IsArchive(path) {
+		if m[1] == "1" {
+			return "first"
+		}
+		return "volume"
+	}
+	switch {
 	case fsutil.IsArchive(path):
 		return "first"
 	case reArchiveExt.MatchString(n):

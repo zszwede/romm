@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/bodgit/sevenzip"
@@ -118,7 +120,31 @@ func extractRar(ctx context.Context, path, dest, password string) error {
 	if password != "" {
 		opts = append(opts, rardecode.Password(password))
 	}
-	rc, err := rardecode.OpenReader(path, opts...)
+	// rardecode follows multi-volume sets by name, but only the standard schemes
+	// (.partN.rar, .rNN). RommDownloader's "... Part1"/"Part2" (often no .rar)
+	// isn't one, so present the volumes as standard-named symlinks in a temp dir
+	// and open the first — otherwise only volume 1 is extracted (a truncated
+	// output) and the continuations fail as standalone archives.
+	openPath := path
+	if vols, multi := rarVolumeSet(path); multi {
+		tmp, err := os.MkdirTemp("", "rarvol-")
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(tmp)
+		for i, v := range vols {
+			abs, err := filepath.Abs(v)
+			if err != nil {
+				return err
+			}
+			link := filepath.Join(tmp, fmt.Sprintf("arc.part%d.rar", i+1))
+			if err := os.Symlink(abs, link); err != nil {
+				return err
+			}
+		}
+		openPath = filepath.Join(tmp, "arc.part1.rar")
+	}
+	rc, err := rardecode.OpenReader(openPath, opts...)
 	if err != nil {
 		return err
 	}
@@ -348,4 +374,58 @@ func (p *peekReader) Read(b []byte) (int, error) {
 		return n, nil
 	}
 	return p.r.Read(b)
+}
+
+// rarVolumeSet returns the ordered volume files of a non-standard "PartN"
+// multi-volume RAR set, so they can be re-presented to rardecode with standard
+// names. For a single file, or a standard-named set (.partN.rar, which rardecode
+// follows itself), it returns (nil, false).
+func rarVolumeSet(first string) ([]string, bool) {
+	base := filepath.Base(first)
+	m := rePartNum.FindStringSubmatch(base)
+	if m == nil {
+		return nil, false
+	}
+	low := strings.ToLower(base)
+	if strings.HasSuffix(low, ".rar") && strings.Contains(low, ".part") {
+		return nil, false // standard .partN.rar — rardecode handles it
+	}
+	dir := filepath.Dir(first)
+	prefix := strings.ToLower(base[:len(base)-len(m[0])])
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, false
+	}
+	type vol struct {
+		n    int
+		path string
+	}
+	var vols []vol
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		nm := e.Name()
+		if !strings.HasPrefix(strings.ToLower(nm), prefix) {
+			continue
+		}
+		mm := rePartNum.FindStringSubmatch(nm)
+		if mm == nil {
+			continue
+		}
+		n, err := strconv.Atoi(mm[1])
+		if err != nil {
+			continue
+		}
+		vols = append(vols, vol{n, filepath.Join(dir, nm)})
+	}
+	if len(vols) <= 1 {
+		return nil, false
+	}
+	sort.Slice(vols, func(i, j int) bool { return vols[i].n < vols[j].n })
+	paths := make([]string, len(vols))
+	for i, v := range vols {
+		paths[i] = v.path
+	}
+	return paths, true
 }
