@@ -105,6 +105,9 @@ type DataStore interface {
 	DownloadQueue(ctx context.Context) ([]store.QueuedRom, error)
 	MergeRoms(ctx context.Context, romIDs []int64) (*store.MergeResult, error)
 	ExcludeRom(ctx context.Context, romID int64) error
+	ListVirtualSources(ctx context.Context, platformID int64) ([]store.VirtualSource, error)
+	UpdateVirtualSource(ctx context.Context, id int64, up store.VirtualSourceUpdate) (*store.VirtualSource, error)
+	DeleteVirtualSource(ctx context.Context, id int64) (bool, error)
 	ListRomNotes(ctx context.Context, romID, userID int64) ([]store.Note, error)
 	SetRomNote(ctx context.Context, userID, romID int64, markdown string, isPublic bool) (*store.Note, error)
 	ClearRomNote(ctx context.Context, userID, romID int64) error
@@ -265,6 +268,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/virtual/queued", s.virtualQueued)
 	s.mux.HandleFunc("POST /api/virtual/merge", s.virtualMerge)
 	s.mux.HandleFunc("POST /api/virtual/roms/{id}/exclude", s.virtualExclude)
+	s.mux.HandleFunc("GET /api/virtual/sources", s.virtualSources)
+	s.mux.HandleFunc("PATCH /api/virtual/sources/{id}", s.virtualUpdateSource)
+	s.mux.HandleFunc("DELETE /api/virtual/sources/{id}", s.virtualDeleteSource)
 	s.mux.HandleFunc("POST /api/virtual/roms/{id}/mark-download", s.virtualMarkDownload)
 	s.mux.HandleFunc("DELETE /api/virtual/roms/{id}/mark-download", s.virtualUnmarkDownload)
 
