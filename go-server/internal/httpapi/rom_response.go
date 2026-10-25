@@ -190,9 +190,10 @@ func romJSON(r *store.RomFull, ru *store.RomUser, userID int64, detail bool) map
 		"created_at": r.CreatedAt,
 		"updated_at": r.UpdatedAt,
 
-		"missing_from_fs": r.MissingFromFs,
-		"is_physical":     r.IsPhysical,
-		"is_virtual":      r.IsVirtual,
+		"missing_from_fs":  r.MissingFromFs,
+		"is_physical":      r.IsPhysical,
+		"is_virtual":       r.IsVirtual,
+		"has_file_on_disk": !r.IsPhysical && !r.IsVirtual && !r.MissingFromFs,
 		"source_url":      sStr(r.SourceURL),
 		"source_hosts":    jsonArr(r.SourceHosts),
 

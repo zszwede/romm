@@ -31,6 +31,9 @@ func main() {
 	ctx := context.Background()
 	queue := worker.New(ctx, 2, 64)
 	scanRoot := filepath.Join(cfg.BasePath, "library", "roms")
+	if cfg.LibraryRomsDir != "" {
+		scanRoot = cfg.LibraryRomsDir
+	}
 
 	var provider metadata.Provider
 	if cfg.IGDBClientID != "" && cfg.IGDBClientSecret != "" {

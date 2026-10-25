@@ -188,6 +188,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/roms", s.listRoms)
 	s.mux.HandleFunc("GET /api/roms/{id}", s.getRom)
 	s.mux.HandleFunc("GET /api/roms/{id}/content", s.getRomContent)
+	// The frontend builds /api/roms/{id}/content/{fs_name} (filename segment for
+	// a nice download name + player path); serve both the same way.
+	s.mux.HandleFunc("GET /api/roms/{id}/content/{name...}", s.getRomContent)
 	s.mux.HandleFunc("GET /api/roms/{id}/achievements", s.getAchievements)
 	s.mux.HandleFunc("GET /api/collections", s.listCollections)
 	s.mux.HandleFunc("PUT /api/roms/{id}/props", s.setRomProps)

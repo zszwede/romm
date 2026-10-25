@@ -36,6 +36,13 @@ type Config struct {
 	// Empty => serve the embedded placeholder shell.
 	WebRoot string
 
+	// LibraryRomsDir: the directory the roms' fs_path is relative to (its parent,
+	// since fs_path is like "roms/<platform>"). Defaults to BASE/library. Set
+	// ROMM_LIBRARY_ROMS_DIR to the ES-DE roms root when the library is served
+	// through an overlay the container sees but the host does not (e.g.
+	// /media/8TB/Retro/roms). The scanner + content serving both use it.
+	LibraryRomsDir string
+
 	// DownloaderConfig: path to a RommDownloader config.yaml. When set, the
 	// virtual-download pipeline runs IN-PROCESS (absorbed). When empty, the
 	// server dispatches to an external merge service if MergeServiceURL is set.
@@ -78,6 +85,7 @@ func FromEnv() Config {
 		MergeServiceURL:   os.Getenv("MERGE_SERVICE_URL"),
 		MergeServiceToken: os.Getenv("MERGE_SERVICE_TOKEN"),
 		WebRoot:           os.Getenv("ROMM_WEB_ROOT"),
+		LibraryRomsDir:    os.Getenv("ROMM_LIBRARY_ROMS_DIR"),
 		DownloaderConfig:  os.Getenv("ROMM_DOWNLOADER_CONFIG"),
 		OIDC: OIDCConfig{
 			Enabled:           boolEnv("OIDC_ENABLED"),
