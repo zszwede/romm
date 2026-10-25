@@ -364,6 +364,7 @@ func (s *Server) routes() {
 
 	// Frontend bootstrap.
 	s.mux.HandleFunc("GET /api/config", s.getConfig)
+	s.mux.HandleFunc("GET /api/config/downloads_settings", s.getDownloadsSettings)
 	s.mux.HandleFunc("GET /api/permissions/me", s.getPermissions)
 	s.mux.HandleFunc("GET /api/permissions/catalog", s.permissionsCatalog)
 	s.mux.HandleFunc("GET /api/permissions/groups", s.permissionGroups)
@@ -707,6 +708,9 @@ func (s *Server) getRom(w http.ResponseWriter, r *http.Request) {
 	// (Metadata + Media tabs). Each is best-effort — a failed load leaves that
 	// section empty rather than failing the whole page.
 	extras := &romExtras{}
+	if s.configFile != nil {
+		extras.HostOrder = s.configFile.Downloads.DefaultHostOrder
+	}
 	extras.Files, _ = s.st.ListRomFiles(ctx, id)
 	extras.Siblings, _ = s.st.ListSiblings(ctx, id, uid)
 	extras.Meta, _ = s.st.GetRomMetadata(ctx, id)

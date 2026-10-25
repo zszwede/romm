@@ -63,6 +63,14 @@ type ConfigData struct {
 		SkipHashCalculation bool `yaml:"skip_hash_calculation"`
 	} `yaml:"filesystem"`
 
+	Downloads struct {
+		MergeServiceURL  string            `yaml:"merge_service_url"`
+		ServiceAPIToken  string            `yaml:"service_api_token"`
+		CallbackToken    string            `yaml:"callback_token"`
+		HostTokens       map[string]string `yaml:"host_tokens"`
+		DefaultHostOrder []string          `yaml:"default_host_order"`
+	} `yaml:"downloads"`
+
 	Scan struct {
 		Gamelist struct {
 			Export bool `yaml:"export"`

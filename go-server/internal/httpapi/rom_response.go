@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -127,6 +128,10 @@ type romExtras struct {
 	States      []store.Asset
 	Screenshots []store.Screenshot
 	Collections []store.Collection
+	// HostOrder is the configured download host preference (config.yml
+	// downloads.default_host_order), used to order a virtual rom's sources so
+	// the preferred host (e.g. 1fichier.com) is offered first.
+	HostOrder []string
 }
 
 // romJSON builds the full RomSchema. detail adds the DetailedRomSchema fields;
@@ -287,6 +292,21 @@ func romJSON(r *store.RomFull, ru *store.RomUser, userID int64, detail bool, ext
 			if u != "" && !seen[u] {
 				seen[u] = true
 				urls = append(urls, u)
+			}
+		}
+		// Order sources by the configured host preference so the preferred host
+		// (e.g. 1fichier.com) is first regardless of which was the primary URL.
+		if extras != nil && len(extras.HostOrder) > 0 {
+			sortByHostOrder(urls, extras.HostOrder)
+			if hosts, ok := m["source_hosts"].([]any); ok {
+				hs := make([]string, 0, len(hosts))
+				for _, h := range hosts {
+					if s, ok := h.(string); ok {
+						hs = append(hs, s)
+					}
+				}
+				sortByHostOrder(hs, extras.HostOrder)
+				m["source_hosts"] = hs
 			}
 		}
 		m["source_urls"] = urls
@@ -509,4 +529,22 @@ func alternativeNames(md *store.RomMetadata, displayName any) []string {
 	add(md.Moby, "alternate_titles")
 	add(md.SS, "alternative_names")
 	return out
+}
+
+// sortByHostOrder stably orders URLs/hosts by the configured host preference:
+// an item whose host matches an earlier entry in order sorts first; unlisted
+// items keep their relative order at the end.
+func sortByHostOrder(items []string, order []string) {
+	rank := func(s string) int {
+		low := strings.ToLower(s)
+		for i, h := range order {
+			if h != "" && strings.Contains(low, strings.ToLower(h)) {
+				return i
+			}
+		}
+		return len(order)
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		return rank(items[i]) < rank(items[j])
+	})
 }

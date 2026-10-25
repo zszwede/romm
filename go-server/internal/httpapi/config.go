@@ -39,6 +39,38 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, cd.APIResponse(authed))
 }
 
+// getDownloadsSettings serves GET /api/config/downloads_settings — the
+// downloads.* block from config.yml (merge service URL, tokens, per-host
+// tokens, and the server's default host order). The frontend's Downloads
+// settings page reads this; without it the page got the SPA HTML and showed a
+// wrong/empty host order.
+func (s *Server) getDownloadsSettings(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.authUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	cd := s.configFile
+	if cd == nil {
+		cd = &config.ConfigData{}
+	}
+	d := cd.Downloads
+	order := d.DefaultHostOrder
+	if order == nil {
+		order = []string{}
+	}
+	tokens := d.HostTokens
+	if tokens == nil {
+		tokens = map[string]string{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"merge_service_url":  d.MergeServiceURL,
+		"service_api_token":  d.ServiceAPIToken,
+		"callback_token":     d.CallbackToken,
+		"host_tokens":        tokens,
+		"default_host_order": order,
+	})
+}
+
 // heartbeatBody builds the full HeartbeatResponse shape the frontend reads on
 // load. Capability flags reflect what this server actually has wired.
 func (s *Server) heartbeatBody(ctx context.Context) map[string]any {
