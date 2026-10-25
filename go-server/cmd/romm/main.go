@@ -40,6 +40,15 @@ func main() {
 		provider = metadata.NewIGDB(cfg.IGDBClientID, cfg.IGDBClientSecret)
 	}
 
+	// Parse config.yml (exclusions, scan priorities, EJS/converto settings).
+	// A missing file is reported to the UI as "not mounted", not fatal.
+	configFile := config.LoadConfigFile(cfg.ConfigFile)
+	if configFile.Mounted {
+		log.Printf("config.yml loaded from %s (writable=%v)", cfg.ConfigFile, configFile.Writable)
+	} else {
+		log.Printf("config.yml not mounted (looked at %q)", cfg.ConfigFile)
+	}
+
 	var ach httpapi.AchievementService
 	if cfg.RAAPIKey != "" {
 		ach = achievements.NewClient(cfg.RAAPIKey)
@@ -96,6 +105,7 @@ func main() {
 			ResourcesRoot: filepath.Join(cfg.BasePath, "resources"),
 			OIDC:         oidcProvider,
 			OIDCUsers:    oidcUsers,
+			ConfigFile:   configFile,
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

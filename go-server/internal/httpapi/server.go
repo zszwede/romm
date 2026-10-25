@@ -21,6 +21,7 @@ import (
 
 	"github.com/zszwede/romm-go/internal/achievements"
 	"github.com/zszwede/romm-go/internal/auth"
+	"github.com/zszwede/romm-go/internal/config"
 	"github.com/zszwede/romm-go/internal/deviceauth"
 	"github.com/zszwede/romm-go/internal/metadata"
 	"github.com/zszwede/romm-go/internal/netplay"
@@ -150,6 +151,9 @@ type Deps struct {
 	// is the user store it provisions against (the *store.Store satisfies it).
 	OIDC      *oidc.Provider
 	OIDCUsers oidc.UserStore
+	// ConfigFile is the parsed RomM config.yml, serving GET /api/config. When
+	// nil the endpoint reports the file as not mounted with empty defaults.
+	ConfigFile *config.ConfigData
 }
 
 type Server struct {
@@ -167,6 +171,7 @@ type Server struct {
 	flows       *deviceauth.Store
 	oidc        *oidc.Provider
 	oidcUsers   oidc.UserStore
+	configFile  *config.ConfigData
 	netplay     *netplay.Hub
 	sockets     *socketio.Hub
 	uploads     *uploadManager
@@ -187,6 +192,7 @@ func New(d Deps) *Server {
 		flows:      deviceauth.NewStore(),
 		oidc:       d.OIDC,
 		oidcUsers:  d.OIDCUsers,
+		configFile: d.ConfigFile,
 		mux:        http.NewServeMux(),
 	}
 	// Netplay signaling hub. The room store + relay logic live here; the
@@ -461,10 +467,16 @@ func (s *Server) listRoms(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
 	q := r.URL.Query()
+	uid, _ := s.st.UserIDByUsername(ctx, claims.Username)
 	filter := store.RomFilter{
 		PlatformIDs:    parseIDList(q.Get("platform_ids")),
 		ExcludeVirtual: q.Get("virtual") == "false",
 		Search:         q.Get("search_term"),
+		GroupByMetaID:  q.Get("group_by_meta_id") == "true",
+		UserID:         uid,
+	}
+	if s.configFile != nil {
+		filter.RegionPriority = s.configFile.Scan.Priority.Region
 	}
 	// Back-compat singular param.
 	if pid := int64(atoiDefault(q.Get("platform_id"), 0)); pid > 0 {
@@ -479,7 +491,6 @@ func (s *Server) listRoms(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "query failed")
 		return
 	}
-	uid, _ := s.st.UserIDByUsername(ctx, claims.Username)
 	items := make([]map[string]any, 0, len(roms))
 	for i := range roms {
 		items = append(items, romJSON(&roms[i], nil, uid, false))

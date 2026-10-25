@@ -34,6 +34,14 @@ Environment=ROMM_WEB_ROOT=/home/xiam/romm/go-webroot
 # source. Without this, ROM download/play (content serving) 404s.
 Environment=ROMM_LIBRARY_ROMS_DIR=/media/8TB/Retro/roms
 
+# ROMM_CONFIG_FILE: path to RomM's config.yml, which drives the Settings UI
+# (exclusion lists, scan priorities, EmulatorJS + converto settings, platform
+# bindings). Defaults to ROMM_BASE_PATH/config/config.yml, but on this host the
+# config dir is a bind the container sees at that path while the host reaches it
+# elsewhere — point it at the host path, or the UI shows "config file not
+# mounted" and every config-driven setting is blank.
+Environment=ROMM_CONFIG_FILE=/home/xiam/romm/config/config.yml
+
 # Secrets + optional integrations — keep out of the unit:
 # EnvironmentFile=/home/xiam/romm/go-server.env   (DB_PASSWD, ROMM_AUTH_SECRET_KEY)
 #   DB_PASSWD=...

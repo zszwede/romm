@@ -39,6 +39,14 @@ disabled; play is in-browser via EmulatorJS instead).
 set (see `romm-go.service`) — the ES-DE library is an overlay the container sees
 but the host does not, so without it ROM download/play (content serving) 404s.
 
+**Also set `ROMM_CONFIG_FILE`** to RomM's `config.yml` (the host path, e.g.
+`/home/xiam/romm/config/config.yml` — same overlay caveat: it defaults to
+`ROMM_BASE_PATH/config/config.yml`, which is the container's view, not the
+host's). It feeds the Settings UI — exclusion lists, scan priorities, EmulatorJS
+and converto settings, platform bindings. Without it the UI shows "config file
+not mounted" and those settings are blank. It is read-only at runtime (the Go
+server serves it; it does not write config.yml back yet).
+
 To cut over: point `romm.ai-monster.local` at `retro.local:8099` (see
 `Caddyfile.snippet`, option 2) and reload Caddy. Roll back instantly by
 restoring the previous `reverse_proxy` target and reloading — the container is

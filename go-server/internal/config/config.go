@@ -6,8 +6,17 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 )
+
+// defaultConfigFile is BasePath/config/config.yml when BasePath is set, else "".
+func defaultConfigFile(basePath string) string {
+	if basePath == "" {
+		return ""
+	}
+	return filepath.Join(basePath, "config", "config.yml")
+}
 
 type Config struct {
 	Addr     string // listen address, e.g. ":8088"
@@ -17,6 +26,13 @@ type Config struct {
 	DBPass   string
 	DBName   string
 	BasePath string // ROMM_BASE_PATH: the state dir (library/, resources/, config/)
+	// ConfigFile is the path to RomM's config.yml (exclusions, scan priorities,
+	// EmulatorJS + converto settings, platform bindings). Defaults to
+	// BasePath/config/config.yml; set ROMM_CONFIG_FILE when the file is reached
+	// at a different host path than the container sees (the ES-DE config dir is a
+	// bind — e.g. the host reads /home/xiam/romm/config/config.yml). A missing
+	// file is reported to the UI as "not mounted".
+	ConfigFile string
 	// AuthSecret is ROMM_AUTH_SECRET_KEY: the HS256 HMAC key the Python app signs
 	// access tokens with. Reused verbatim so tokens issued by the existing
 	// backend verify here unchanged.
@@ -78,6 +94,7 @@ func FromEnv() Config {
 		DBPass:            os.Getenv("DB_PASSWD"),
 		DBName:            env("DB_NAME", "romm"),
 		BasePath:          os.Getenv("ROMM_BASE_PATH"),
+		ConfigFile:        env("ROMM_CONFIG_FILE", defaultConfigFile(os.Getenv("ROMM_BASE_PATH"))),
 		AuthSecret:        os.Getenv("ROMM_AUTH_SECRET_KEY"),
 		IGDBClientID:      os.Getenv("IGDB_CLIENT_ID"),
 		IGDBClientSecret:  os.Getenv("IGDB_CLIENT_SECRET"),

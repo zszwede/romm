@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"time"
+
+	"github.com/zszwede/romm-go/internal/config"
 )
 
 // getPermissions serves GET /api/permissions/me. For the single admin user this
@@ -23,50 +25,18 @@ func (s *Server) getPermissions(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// getConfig serves GET /api/config with safe home-lab defaults for every key the
-// ConfigResponse carries. Scan/exclusion lists are empty (nothing filtered);
-// EmulatorJS is on with no per-core overrides.
+// getConfig serves GET /api/config from the parsed RomM config.yml (exclusion
+// lists, scan priorities, EmulatorJS + converto settings, platform bindings).
+// When no config file is wired, an empty ConfigData still produces the full
+// response shape with CONFIG_FILE_MOUNTED=false so the frontend shows its
+// "config not mounted" banner rather than erroring on a missing key.
 func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
-		"CONFIG_FILE_MOUNTED":                false,
-		"CONFIG_FILE_WRITABLE":               false,
-		"CONFIG_FILE_PARSE_ERROR":            nil,
-		"EXCLUDED_PLATFORMS":                 []string{},
-		"EXCLUDED_SINGLE_EXT":                []string{},
-		"EXCLUDED_SINGLE_FILES":              []string{},
-		"EXCLUDED_MULTI_FILES":               []string{},
-		"EXCLUDED_MULTI_PARTS_EXT":           []string{},
-		"EXCLUDED_MULTI_PARTS_FILES":         []string{},
-		"DEFAULT_EXCLUDED_PLATFORM_DIRS":     []string{},
-		"DEFAULT_EXCLUDED_MULTI_FILE_DIRS":   []string{},
-		"DEFAULT_EXCLUDED_FILES":             []string{},
-		"DEFAULT_EXCLUDED_EXTENSIONS":        []string{},
-		"PLATFORMS_BINDING":                  map[string]string{},
-		"PLATFORMS_VERSIONS":                 map[string]string{},
-		"SKIP_HASH_CALCULATION":              false,
-		"EJS_DEBUG":                          false,
-		"EJS_CACHE_LIMIT":                    nil,
-		"EJS_DISABLE_AUTO_UNLOAD":            false,
-		"EJS_DISABLE_BATCH_BOOTUP":           false,
-		"EJS_ENABLE_AUTO_SAVE_SYNC":          true,
-		"EJS_NETPLAY_ENABLED":                false,
-		"EJS_NETPLAY_ICE_SERVERS":            []any{},
-		"EJS_DEFAULT_CORES":                  map[string]string{},
-		"EJS_SETTINGS":                       map[string]any{},
-		"EJS_CONTROLS":                       map[string]any{},
-		"SCAN_METADATA_PRIORITY":             []string{},
-		"SCAN_ARTWORK_PRIORITY":              []string{},
-		"SCAN_ARTWORK_PRIORITY_OVERRIDES":    map[string]any{},
-		"SCAN_REGION_PRIORITY":               []string{},
-		"SCAN_LANGUAGE_PRIORITY":             []string{},
-		"SCAN_MEDIA":                         []string{},
-		"GAMELIST_AUTO_EXPORT_ON_SCAN":       false,
-		"GAMELIST_MEDIA_THUMBNAIL":           "",
-		"GAMELIST_MEDIA_IMAGE":               "",
-		"PEGASUS_AUTO_EXPORT_ON_SCAN":        false,
-		"CONVERTO":                           map[string]any{},
-		"CONVERTO_LIBRARY_TARGETS":           map[string]any{},
-	})
+	cd := s.configFile
+	if cd == nil {
+		cd = &config.ConfigData{}
+	}
+	_, authed := s.authUser(r)
+	writeJSON(w, http.StatusOK, cd.APIResponse(authed))
 }
 
 // heartbeatBody builds the full HeartbeatResponse shape the frontend reads on
