@@ -113,6 +113,10 @@ type DataStore interface {
 	ClearRomNote(ctx context.Context, userID, romID int64) error
 	GetPlatform(ctx context.Context, id int64) (*store.Platform, error)
 	UpdatePlatformCustomName(ctx context.Context, id int64, customName string) (*store.Platform, error)
+	InsertScreenshot(ctx context.Context, sc store.Screenshot) (int64, error)
+	ListScreenshots(ctx context.Context, romID, userID int64) ([]store.Screenshot, error)
+	ScreenshotLocation(ctx context.Context, id int64) (filePath, fileName string, found bool, err error)
+	DeleteScreenshot(ctx context.Context, id int64) error
 }
 
 // Deps are the server's collaborators. Passed as a struct so new ones can be
@@ -222,6 +226,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/platforms/{id}", s.getPlatform)
 	s.mux.HandleFunc("PUT /api/platforms/{id}", s.updatePlatform)
 	s.mux.HandleFunc("POST /api/tasks/run/{name}", s.runTask)
+	s.mux.HandleFunc("GET /api/screenshots", s.listScreenshots)
+	s.mux.HandleFunc("POST /api/screenshots", s.uploadScreenshot)
+	s.mux.HandleFunc("GET /api/screenshots/{id}/content", s.screenshotContent)
+	s.mux.HandleFunc("DELETE /api/screenshots/{id}", s.deleteScreenshot)
 	s.mux.HandleFunc("GET /api/music/favorites", s.musicFavorites)
 	s.mux.HandleFunc("POST /api/music/favorites", s.musicFavorites)
 	s.mux.HandleFunc("DELETE /api/music/favorites", s.musicFavorites)

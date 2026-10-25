@@ -226,6 +226,10 @@ func (f *fakeStore) DeleteVirtualSource(_ context.Context, id int64) (bool, erro
 func (f *fakeStore) ListRomNotes(context.Context, int64, int64) ([]store.Note, error) { return []store.Note{}, nil }
 func (f *fakeStore) SetRomNote(_ context.Context, uid, rid int64, md string, pub bool) (*store.Note, error) { return &store.Note{ID:1, RomID:rid, UserID:uid, RawMarkdown:md, IsPublic:pub}, nil }
 func (f *fakeStore) ClearRomNote(context.Context, int64, int64) error { return nil }
+func (f *fakeStore) InsertScreenshot(context.Context, store.Screenshot) (int64, error) { return 1, nil }
+func (f *fakeStore) ListScreenshots(context.Context, int64, int64) ([]store.Screenshot, error) { return []store.Screenshot{}, nil }
+func (f *fakeStore) ScreenshotLocation(context.Context, int64) (string, string, bool, error) { return "", "", false, nil }
+func (f *fakeStore) DeleteScreenshot(context.Context, int64) error { return nil }
 func (f *fakeStore) GetPlatform(_ context.Context, id int64) (*store.Platform, error) { return &store.Platform{ID:id, Name:"Switch", DisplayName:"Switch", Slug:"switch"}, nil }
 func (f *fakeStore) UpdatePlatformCustomName(_ context.Context, id int64, cn string) (*store.Platform, error) { return &store.Platform{ID:id, Name:"Switch", DisplayName:cn, Slug:"switch"}, nil }
 func (f *fakeStore) DownloadQueue(context.Context) ([]store.QueuedRom, error) {
