@@ -482,7 +482,10 @@ func firstLetterBucket(s string) string {
 // romOrderColumn whitelists sortable columns to avoid injection.
 func romOrderColumn(orderBy string) string {
 	switch orderBy {
-	case "name":
+	case "name", "":
+		// Default: alphabetical by name, matching the gallery's default order.
+		// (The detail page's next/prev index fetch omits order_by, so the server
+		// default must match or next/prev would step through id order instead.)
 		return "COALESCE(r.name_sort_key, r.name, r.fs_name)"
 	case "first_release_date":
 		return "r.generated_first_release_date"
@@ -490,10 +493,10 @@ func romOrderColumn(orderBy string) string {
 		return "r.updated_at" // best-effort without a per-user join here
 	case "fs_size_bytes":
 		return "r.fs_size_bytes"
-	case "created_at":
+	case "added", "created_at":
 		return "r.created_at"
 	default:
-		return "r.id"
+		return "COALESCE(r.name_sort_key, r.name, r.fs_name)"
 	}
 }
 
