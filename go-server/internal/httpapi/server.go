@@ -105,6 +105,9 @@ type DataStore interface {
 	DownloadQueue(ctx context.Context) ([]store.QueuedRom, error)
 	MergeRoms(ctx context.Context, romIDs []int64) (*store.MergeResult, error)
 	ExcludeRom(ctx context.Context, romID int64) error
+	ListRomNotes(ctx context.Context, romID, userID int64) ([]store.Note, error)
+	SetRomNote(ctx context.Context, userID, romID int64, markdown string, isPublic bool) (*store.Note, error)
+	ClearRomNote(ctx context.Context, userID, romID int64) error
 }
 
 // Deps are the server's collaborators. Passed as a struct so new ones can be
@@ -217,6 +220,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/roms/{id}/content/{name...}", s.getRomContent)
 	s.mux.HandleFunc("GET /api/roms/{id}/achievements", s.getAchievements)
 	s.mux.HandleFunc("GET /api/roms/{id}/similar", s.getSimilarRoms)
+	s.mux.HandleFunc("GET /api/roms/{id}/notes", s.listRomNotes)
+	s.mux.HandleFunc("POST /api/roms/{id}/notes", s.setRomNote)
+	s.mux.HandleFunc("PUT /api/roms/{id}/notes/{note_id}", s.setRomNote)
+	s.mux.HandleFunc("DELETE /api/roms/{id}/notes/{note_id}", s.deleteRomNote)
 	s.mux.HandleFunc("GET /api/collections", s.listCollections)
 	s.mux.HandleFunc("POST /api/collections", s.createCollection)
 	s.mux.HandleFunc("GET /api/collections/{id}", s.getCollection)
