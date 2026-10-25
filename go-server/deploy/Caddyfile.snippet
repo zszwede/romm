@@ -8,13 +8,21 @@
 #            reverse_proxy retro.local:8099
 #        }
 #
-# 2) Cutover — once you accept the feature trade-off (the Go server omits save/
-#    state sync, streaming/netplay, OIDC, music, achievements, ROM patching),
-#    point the real hostname at it:
+# 2) Cutover — point the real hostname at the Go server:
 #
 #        romm.ai-monster.local {
 #            reverse_proxy retro.local:8099   # was the romm container :80
 #        }
 #
 # Then: reload Caddy (caddy reload / systemctl reload caddy). Roll back by
-# restoring the previous reverse_proxy target.
+# restoring the previous reverse_proxy target and reloading.
+#
+# Feature parity as of the golang-rewrite branch: the Go server is a drop-in for
+# the whole app — browse, search, play (EmulatorJS), favorites, collections,
+# saves/states sync, settings, user management, achievements, music, metadata,
+# and the full virtual-download feature (queue, merge, exclude, sources, the
+# archive.org scraper). The ONE feature it does not carry is remote-session
+# STREAMING (the session-host that streams real emulator processes over WebRTC);
+# it is reported disabled, and play happens in-browser via EmulatorJS instead.
+# Make sure the service has ROMM_LIBRARY_ROMS_DIR set (see romm-go.service) or
+# ROM download/play will 404 after the cutover.

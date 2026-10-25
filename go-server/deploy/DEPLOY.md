@@ -23,12 +23,23 @@ Verify: `curl localhost:8099/api/heartbeat` and open the UI through a parallel
 Caddy vhost (see `Caddyfile.snippet`, option 1).
 
 ## 4. Cutover (your decision)
-The rewrite implements the core workflow (browse, scan, metadata, rom_user
-state, virtual downloads). It **intentionally omits**, and therefore cutover
-**loses until ported**: save/state sync, play-session streaming/netplay,
-OIDC/device auth, music playlists, achievements, in-browser ROM patching.
+The rewrite is a drop-in for the whole app — browse, search, play (EmulatorJS),
+favorites, collections, saves/states sync + edits, scan, ROM upload, rom_user
+state, notes, media, settings, user management, permissions, client tokens,
+achievements, music, metadata, device sync, and the full virtual-download
+feature (queue, merge, exclude, sources CRUD, the archive.org scraper). Verified
+end to end in a browser with a zero-error console; 18 Go packages pass
+`go test -race`, 6 integration tests against the live schema.
 
-When you accept that trade-off, point `romm.ai-monster.local` at
-`retro.local:8099` (see `Caddyfile.snippet`, option 2) and reload Caddy. Roll
-back by restoring the previous `reverse_proxy` target — the container is
+The **one** feature it does not carry is remote-session **streaming** (the
+session-host that streams real emulator processes over WebRTC — reported
+disabled; play is in-browser via EmulatorJS instead).
+
+**IMPORTANT:** the service must have `ROMM_LIBRARY_ROMS_DIR=/media/8TB/Retro/roms`
+set (see `romm-go.service`) — the ES-DE library is an overlay the container sees
+but the host does not, so without it ROM download/play (content serving) 404s.
+
+To cut over: point `romm.ai-monster.local` at `retro.local:8099` (see
+`Caddyfile.snippet`, option 2) and reload Caddy. Roll back instantly by
+restoring the previous `reverse_proxy` target and reloading — the container is
 untouched and still running.

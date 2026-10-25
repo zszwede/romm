@@ -2,7 +2,8 @@
 # User systemd unit for the Go RomM server. Install to
 # ~/.config/systemd/user/romm-go.service, `systemctl --user daemon-reload`,
 # then `systemctl --user enable --now romm-go`. Runs alongside the container
-# until you cut Caddy over to it.
+# until you cut Caddy over to it. (If it must survive logout without a login
+# session, `loginctl enable-linger $USER`.)
 Description=RomM (Go rewrite) server
 After=network-online.target
 Wants=network-online.target
@@ -12,19 +13,36 @@ Wants=network-online.target
 ExecStart=/home/xiam/romm-fork/go-server/bin/romm-go
 Restart=on-failure
 RestartSec=3
-# --- environment (fill the secrets; same values the container uses) ---
+
+# --- environment (same values the container uses; secrets via EnvironmentFile) ---
 Environment=ROMM_GO_ADDR=:8099
 Environment=DB_HOST=192.168.1.201
 Environment=DB_PORT=3306
 Environment=DB_USER=romm-user
 Environment=DB_NAME=romm
 Environment=ROMM_BASE_PATH=/media/8TB/Retro/.romm
+
+# ROMM_WEB_ROOT: the real built Vue dist + EmulatorJS/player assets. The ES-DE
+# container serves it from /var/www/html; copy it to a host path the service can
+# read (e.g. `podman cp romm:/var/www/html/. /home/xiam/romm/go-webroot/`), or
+# point at wherever the dist lives on disk.
 Environment=ROMM_WEB_ROOT=/home/xiam/romm/go-webroot
-# Environment=DB_PASSWD=...
-# Environment=ROMM_AUTH_SECRET_KEY=...
-# Environment=IGDB_CLIENT_ID=...   IGDB_CLIENT_SECRET=...
-# In-process downloads (optional): Environment=ROMM_DOWNLOADER_CONFIG=/home/xiam/RommDownloader/config.yaml
-# Secrets are better kept out of the unit: EnvironmentFile=/home/xiam/romm/go-server.env
+
+# ROMM_LIBRARY_ROMS_DIR: REQUIRED on this host. The DB's fs_path is "roms/<slug>"
+# relative to the library roms root. In the container that root is an overlay at
+# ROMM_BASE_PATH/library/roms, but on the HOST the real files live at the ES-DE
+# source. Without this, ROM download/play (content serving) 404s.
+Environment=ROMM_LIBRARY_ROMS_DIR=/media/8TB/Retro/roms
+
+# Secrets + optional integrations — keep out of the unit:
+# EnvironmentFile=/home/xiam/romm/go-server.env   (DB_PASSWD, ROMM_AUTH_SECRET_KEY)
+#   DB_PASSWD=...
+#   ROMM_AUTH_SECRET_KEY=...            # same key the container signs tokens with
+#   IGDB_CLIENT_ID=...  IGDB_CLIENT_SECRET=...     # metadata search
+#   RETROACHIEVEMENTS_API_KEY=...                  # achievements
+#   ROMM_DOWNLOADER_CONFIG=/home/xiam/RommDownloader/config.yaml   # in-process downloads
+#   OIDC_ENABLED=true  OIDC_CLIENT_ID=...  OIDC_CLIENT_SECRET=...   # optional SSO
+#     OIDC_SERVER_METADATA_URL=...  OIDC_REDIRECT_URI=...
 
 [Install]
 WantedBy=default.target
