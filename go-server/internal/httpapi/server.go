@@ -26,6 +26,7 @@ import (
 	"github.com/zszwede/romm-go/internal/netplay"
 	"github.com/zszwede/romm-go/internal/oidc"
 	"github.com/zszwede/romm-go/internal/scan"
+	"github.com/zszwede/romm-go/internal/socketio"
 	"github.com/zszwede/romm-go/internal/store"
 	"github.com/zszwede/romm-go/internal/virtual"
 	"github.com/zszwede/romm-go/internal/worker"
@@ -129,6 +130,7 @@ type Server struct {
 	oidc        *oidc.Provider
 	oidcUsers   oidc.UserStore
 	netplay     *netplay.Hub
+	sockets     *socketio.Hub
 	mux         *http.ServeMux
 }
 
@@ -152,6 +154,7 @@ func New(d Deps) *Server {
 	// Socket.IO wire transport that drives open/join is the one unbuilt seam,
 	// so for now the hub is fed only by tests and the REST list reflects it.
 	s.netplay = netplay.NewHub(netplay.NewRoomStore(), netplayNoopEmitter{}, denyAllAuthz{})
+	s.sockets = socketio.NewHub()
 	if d.ScanRoot != "" {
 		s.libraryRoot = filepath.Dir(d.ScanRoot)
 	}
@@ -210,6 +213,9 @@ func (s *Server) routes() {
 
 	// Netplay: list joinable rooms for a ROM.
 	s.mux.HandleFunc("GET /api/netplay/list", s.netplayList)
+
+	// Socket.IO real-time transport (scan progress, live events).
+	s.mux.HandleFunc("GET /ws/socket.io/", s.sockets.Handler)
 
 	// Session auth + identity.
 	s.mux.HandleFunc("POST /api/login", s.login)
