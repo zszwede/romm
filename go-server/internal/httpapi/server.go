@@ -308,6 +308,13 @@ func (s *Server) routes() {
 	// Frontend bootstrap.
 	s.mux.HandleFunc("GET /api/config", s.getConfig)
 	s.mux.HandleFunc("GET /api/permissions/me", s.getPermissions)
+	s.mux.HandleFunc("GET /api/permissions/catalog", s.permissionsCatalog)
+	s.mux.HandleFunc("GET /api/permissions/groups", s.permissionGroups)
+	s.mux.HandleFunc("GET /api/permissions/users/{id}", s.userPermissions)
+	s.mux.HandleFunc("PUT /api/permissions/users/{id}", s.userPermissions)
+	s.mux.HandleFunc("POST /api/permissions/hidden", s.hiddenEntities)
+	s.mux.HandleFunc("DELETE /api/permissions/hidden", s.hiddenEntities)
+	s.mux.HandleFunc("POST /api/users/{id}/ra/refresh", s.raRefresh)
 	s.mux.HandleFunc("GET /api/stats", s.getStats)
 	s.mux.HandleFunc("GET /api/notifications", s.getNotifications)
 	s.mux.HandleFunc("GET /api/recommendations", s.getRecommendations)
