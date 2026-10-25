@@ -237,7 +237,30 @@ func (s *Store) SetRomUserProps(ctx context.Context, userID, romID int64, p RomU
 		return 0, nil
 	}
 
-	insCols := append([]string{"rom_id", "user_id"}, cols...)
+	// rom_user has NOT-NULL columns with no DB default (is_main_sibling,
+	// backlogged, now_playing, hidden, rating, difficulty, completion), so a
+	// first INSERT must seed them all. Start from zero defaults and override
+	// with whatever the caller set; the ON DUPLICATE UPDATE touches only the
+	// caller's columns so an existing row keeps its other values.
+	requested := map[string]any{}
+	for i, c := range cols {
+		requested[c] = vals[i]
+	}
+	insCols := []string{"rom_id", "user_id"}
+	insVals := []any{romID, userID}
+	for _, c := range []string{"is_main_sibling", "backlogged", "now_playing", "hidden", "rating", "difficulty", "completion"} {
+		insCols = append(insCols, c)
+		if v, ok := requested[c]; ok {
+			insVals = append(insVals, v)
+		} else {
+			insVals = append(insVals, 0)
+		}
+	}
+	// A status (nullable) set on a brand-new row.
+	if v, ok := requested["status"]; ok {
+		insCols = append(insCols, "status")
+		insVals = append(insVals, v)
+	}
 	ph := strings.TrimSuffix(strings.Repeat("?,", len(insCols)), ",")
 	upd := make([]string, 0, len(cols)+1)
 	for _, c := range cols {
@@ -249,7 +272,7 @@ func (s *Store) SetRomUserProps(ctx context.Context, userID, romID int64, p RomU
 			"ON DUPLICATE KEY UPDATE %s",
 		strings.Join(insCols, ", "), ph, strings.Join(upd, ", "),
 	)
-	args := append([]any{romID, userID}, vals...)
+	args := insVals
 	if _, err := s.DB.ExecContext(ctx, q, args...); err != nil {
 		return 0, err
 	}
