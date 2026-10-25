@@ -145,6 +145,16 @@ func (s *Server) virtualMarkDownload(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]any{"msg": "No downloadable URL", "status": "wanted"})
 		return
 	}
+	// Availability pre-check: drop links the downloader confirms are gone (a
+	// dead 1fichier link, say), so a live mirror is used instead of failing on a
+	// dead primary. Unknown/unchecked links are kept. Best-effort — if the check
+	// itself fails, dispatch the full set unchanged.
+	links = pruneDeadLinks(ctx, s.virt, links)
+	if len(links) == 0 {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"msg": "All sources are unavailable", "status": "wanted"})
+		return
+	}
 	job := virtual.Job{
 		System: rom.PlatformFsSlug, Name: rom.Name.String,
 		Links: links, RomID: id, PlatformID: rom.PlatformID,
@@ -366,4 +376,37 @@ func (s *Server) virtualExclude(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"msg": "ROM deleted and excluded"})
+}
+
+// pruneDeadLinks removes links the downloader's availability check confirms are
+// gone (available=false AND checked=true). Links it couldn't check are kept, so
+// a flaky check never drops a good link. Returns the input unchanged on error.
+func pruneDeadLinks(ctx context.Context, virt VirtualService, links []virtual.Link) []virtual.Link {
+	if len(links) == 0 {
+		return links
+	}
+	urls := make([]string, len(links))
+	for i, l := range links {
+		urls[i] = l.URL
+	}
+	avail, err := virt.Check(ctx, urls)
+	if err != nil {
+		return links
+	}
+	dead := map[string]bool{}
+	for _, a := range avail {
+		if a.Checked && !a.Available {
+			dead[a.URL] = true
+		}
+	}
+	if len(dead) == 0 {
+		return links
+	}
+	out := links[:0]
+	for _, l := range links {
+		if !dead[l.URL] {
+			out = append(out, l)
+		}
+	}
+	return out
 }
