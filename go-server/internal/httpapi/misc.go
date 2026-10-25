@@ -73,13 +73,15 @@ func (s *Server) getVirtualCollections(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, []any{})
 }
 
-// getTasksStatus reports no scheduled tasks running.
+// getTasksStatus reports running tasks as a bare array (none running). The
+// frontend's scan watcher does data.find(t => t.task_type==='scan'), so this
+// must be an array, not an object.
 func (s *Server) getTasksStatus(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.authUser(r); !ok {
 		writeErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{})
+	writeJSON(w, http.StatusOK, []any{})
 }
 
 // getStreamingConfig reports remote-session streaming as disabled.
