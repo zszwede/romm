@@ -86,6 +86,9 @@ type DataStore interface {
 	GetStats(ctx context.Context) (store.Stats, error)
 	RandomRomID(ctx context.Context) (int64, error)
 	GetRomFull(ctx context.Context, id int64) (*store.RomFull, error)
+	UpdateRomFields(ctx context.Context, id int64, fields map[string]any) error
+	UnmatchRom(ctx context.Context, id int64, fsName string) error
+	DeleteRom(ctx context.Context, id int64) (bool, error)
 	ListRomsFull(ctx context.Context, f store.RomFilter, orderBy, orderDir string, limit, offset int) ([]store.RomFull, error)
 	CountRoms(ctx context.Context, f store.RomFilter) (int64, error)
 	RomIDIndex(ctx context.Context, f store.RomFilter, orderBy, orderDir string) ([]int64, map[string]int, error)
@@ -295,6 +298,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/collections/{id}/roms", s.addRomsToCollection)
 	s.mux.HandleFunc("DELETE /api/collections/{id}/roms", s.removeRomsFromCollection)
 	s.mux.HandleFunc("PUT /api/roms/{id}/props", s.setRomProps)
+	// Edit / manual-match / unmatch a rom. More-specific PUT patterns above
+	// (/props) win in the stdlib mux; the 2-segment upload matcher below handles
+	// only the "upload" prefix, so a numeric {id} lands here.
+	s.mux.HandleFunc("PUT /api/roms/{id}", s.updateRom)
+	// Bulk delete (frontend posts {roms:[], delete_from_fs:[]}). Literal "delete"
+	// is a distinct 2-segment path, so it doesn't collide with GET /roms/{id}.
+	s.mux.HandleFunc("POST /api/roms/delete", s.deleteRoms)
 	// Chunked ROM upload. The chunk PUT goes through a general 2-segment matcher
 	// because PUT /api/roms/upload/{id} would conflict with the more-specific
 	// PUT /api/roms/{id}/props in the stdlib mux; props stays specific and wins,

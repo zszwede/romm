@@ -60,6 +60,14 @@ type fakeStore struct {
 	propsCalls       int
 	upserts          []scan.Record
 
+	unmatchCalls      int
+	gotUnmatchID      int64
+	gotUnmatchFsName  string
+	updateFieldsCalls int
+	gotUpdateFields   map[string]any
+	deleteCalls       int
+	gotDeleteID       int64
+
 	locPath, locName string
 	locFound         bool
 
@@ -155,6 +163,22 @@ func (f *fakeStore) GetRomFull(_ context.Context, id int64) (*store.RomFull, err
 		return &store.RomFull{ID: 7, Name: toNullStr("Zelda"), PlatformID: 1, PlatformSlug: "switch", PlatformName: "Switch", FsName: "Zelda.nsp", FsPath: "roms/switch"}, nil
 	}
 	return nil, nil
+}
+func (f *fakeStore) UpdateRomFields(_ context.Context, _ int64, fields map[string]any) error {
+	f.updateFieldsCalls++
+	f.gotUpdateFields = fields
+	return nil
+}
+func (f *fakeStore) UnmatchRom(_ context.Context, id int64, fsName string) error {
+	f.unmatchCalls++
+	f.gotUnmatchID = id
+	f.gotUnmatchFsName = fsName
+	return nil
+}
+func (f *fakeStore) DeleteRom(_ context.Context, id int64) (bool, error) {
+	f.deleteCalls++
+	f.gotDeleteID = id
+	return id == 7, nil // fake has only rom 7
 }
 func (f *fakeStore) ListRomsFull(context.Context, store.RomFilter, string, string, int, int) ([]store.RomFull, error) {
 	return []store.RomFull{{ID: 7, Name: toNullStr("Zelda"), PlatformID: 1, PlatformSlug: "switch", PlatformName: "Switch", FsName: "Zelda.nsp", FsPath: "roms/switch"}}, nil
@@ -401,6 +425,68 @@ func TestGetRom(t *testing.T) {
 		t.Errorf("missing: want 404 got %d", w.Code)
 	}
 	if w := do(s, "GET", "/api/roms/7", "", ""); w.Code != 401 {
+		t.Errorf("no auth: want 401 got %d", w.Code)
+	}
+}
+
+func TestUpdateRom_Unmatch(t *testing.T) {
+	s, fs := newTestServer(t)
+	tok := token(t, testSecret, "access", "romm:oauth")
+	// The route must exist (regression: it used to 405) and trigger an unmatch.
+	w := do(s, "PUT", "/api/roms/7?unmatch_metadata=true", tok, "")
+	if w.Code != 200 {
+		t.Fatalf("unmatch: want 200 got %d body %s", w.Code, w.Body.String())
+	}
+	if fs.unmatchCalls != 1 || fs.gotUnmatchID != 7 {
+		t.Fatalf("unmatch not called correctly: calls=%d id=%d", fs.unmatchCalls, fs.gotUnmatchID)
+	}
+	if fs.gotUnmatchFsName != "Zelda.nsp" {
+		t.Errorf("unmatch fsName = %q, want Zelda.nsp", fs.gotUnmatchFsName)
+	}
+	// Without the flag it is an edit, not an unmatch.
+	w = do(s, "PUT", "/api/roms/7", tok, "")
+	if w.Code != 200 {
+		t.Fatalf("edit: want 200 got %d body %s", w.Code, w.Body.String())
+	}
+	if fs.unmatchCalls != 1 {
+		t.Errorf("edit should not unmatch, calls=%d", fs.unmatchCalls)
+	}
+	if fs.updateFieldsCalls != 1 {
+		t.Errorf("edit should call UpdateRomFields once, got %d", fs.updateFieldsCalls)
+	}
+	// Auth is required.
+	if w := do(s, "PUT", "/api/roms/7?unmatch_metadata=true", "", ""); w.Code != 401 {
+		t.Errorf("no auth: want 401 got %d", w.Code)
+	}
+}
+
+func TestDeleteRoms(t *testing.T) {
+	s, fs := newTestServer(t)
+	fs.locPath, fs.locName, fs.locFound = "switch", "Zelda.nsp", true
+	tok := token(t, testSecret, "access", "romm:oauth")
+
+	// Route must exist (regression: POST /api/roms/delete used to 405) and delete.
+	w := do(s, "POST", "/api/roms/delete", tok, `{"roms":[7],"delete_from_fs":[]}`)
+	if w.Code != 200 {
+		t.Fatalf("delete: want 200 got %d body %s", w.Code, w.Body.String())
+	}
+	if fs.deleteCalls != 1 || fs.gotDeleteID != 7 {
+		t.Fatalf("delete not called right: calls=%d id=%d", fs.deleteCalls, fs.gotDeleteID)
+	}
+	if !strings.Contains(w.Body.String(), `"successful_items":1`) {
+		t.Errorf("body = %s", w.Body.String())
+	}
+
+	// An unknown rom is reported failed, not deleted.
+	fs.locFound = false
+	w = do(s, "POST", "/api/roms/delete", tok, `{"roms":[999],"delete_from_fs":[]}`)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"successful_items":0`) ||
+		!strings.Contains(w.Body.String(), "999") {
+		t.Errorf("unknown rom: code %d body %s", w.Code, w.Body.String())
+	}
+
+	// Auth required.
+	if w := do(s, "POST", "/api/roms/delete", "", `{"roms":[7]}`); w.Code != 401 {
 		t.Errorf("no auth: want 401 got %d", w.Code)
 	}
 }
