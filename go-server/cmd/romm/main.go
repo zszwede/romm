@@ -48,6 +48,19 @@ func main() {
 		log.Printf("ScreenScraper enabled (dev id %s, user %s)", cfg.SSDevID, cfg.SSUser)
 	}
 
+	// Hasheous (hash identification) and Libretro (box-art covers) — public,
+	// keyless public sources, on by default.
+	var hasheous *metadata.Hasheous
+	if cfg.HasheousEnabled {
+		hasheous = metadata.NewHasheous()
+		log.Printf("Hasheous enabled (hash identification)")
+	}
+	var libretro *metadata.Libretro
+	if cfg.LibretroEnabled {
+		libretro = metadata.NewLibretro()
+		log.Printf("Libretro enabled (box-art covers)")
+	}
+
 	// Parse config.yml (exclusions, scan priorities, EJS/converto settings).
 	// A missing file is reported to the UI as "not mounted", not fatal.
 	configFile := config.LoadConfigFile(cfg.ConfigFile)
@@ -107,6 +120,8 @@ func main() {
 			ScanRoot:     scanRoot,
 			Metadata:     provider,
 			MetadataSS:   ssProvider,
+			Libretro:     libretro,
+			Hasheous:     hasheous,
 			Virtual:      virt,
 			Achievements: ach,
 			WebRoot:       cfg.WebRoot,

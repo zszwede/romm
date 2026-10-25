@@ -35,7 +35,10 @@ Metadata matching runs against **ScreenScraper** (this install's primary source,
 platform-scoped) and **IGDB**; set `SCREENSCRAPER_DEV_ID`/`_DEV_PASSWORD` (+
 `SCREENSCRAPER_USER`/`_PASSWORD` for the higher quota) and the IGDB pair in the
 env file. The manual-match dialog (`GET /api/search/roms`) queries both and
-merges hits per title.
+merges hits per title. **Hasheous** (hash identification — a scan identifies
+still-unmatched, hashed roms by their md5/sha1/crc) and **Libretro** (box-art
+covers added to match results) are public keyless sources, on by default; set
+`HASHEOUS_API_ENABLED=false` / `LIBRETRO_API_ENABLED=false` to turn either off.
 
 The **one** feature it does not carry is remote-session **streaming** (the
 session-host that streams real emulator processes over WebRTC — reported

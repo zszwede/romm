@@ -55,6 +55,8 @@ func (s *Server) heartbeatBody(ctx context.Context) map[string]any {
 	if c, ok := s.ss.(interface{ HasDevCredentials() bool }); ok {
 		ssDevCreds = c.HasDevCredentials()
 	}
+	hasheous := s.hasheous != nil
+	libretro := s.libretro != nil
 	oidcEnabled := s.oidc != nil
 
 	return map[string]any{
@@ -64,7 +66,7 @@ func (s *Server) heartbeatBody(ctx context.Context) map[string]any {
 			"SHOW_SETUP_WIZARD": false,
 		},
 		"METADATA_SOURCES": map[string]any{
-			"ANY_SOURCE_ENABLED":      igdb || ra || ss,
+			"ANY_SOURCE_ENABLED":      igdb || ra || ss || hasheous || libretro,
 			"IGDB_API_ENABLED":        igdb,
 			"SS_API_ENABLED":          ss,
 			"SS_DEV_CREDENTIALS_SET":  ssDevCreds,
@@ -72,7 +74,7 @@ func (s *Server) heartbeatBody(ctx context.Context) map[string]any {
 			"STEAMGRIDDB_API_ENABLED": false,
 			"RA_API_ENABLED":          ra,
 			"LAUNCHBOX_API_ENABLED":   false,
-			"HASHEOUS_API_ENABLED":    false,
+			"HASHEOUS_API_ENABLED":    hasheous,
 			"PLAYMATCH_API_ENABLED":   false,
 			"TGDB_API_ENABLED":        false,
 			"FLASHPOINT_API_ENABLED":  false,
@@ -81,7 +83,7 @@ func (s *Server) heartbeatBody(ctx context.Context) map[string]any {
 			"POUET_API_ENABLED":       false,
 			"CSDB_API_ENABLED":        false,
 			"STEAM_API_ENABLED":       false,
-			"LIBRETRO_API_ENABLED":    false,
+			"LIBRETRO_API_ENABLED":    libretro,
 		},
 		"FILESYSTEM": map[string]any{
 			"FS_PLATFORMS":                 fsPlatforms,

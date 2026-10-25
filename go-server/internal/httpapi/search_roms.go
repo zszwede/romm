@@ -22,11 +22,13 @@ type searchRomsResult struct {
 	Name          string `json:"name"`
 	Slug          string `json:"slug"`
 	Summary       string `json:"summary"`
-	IgdbURLCover  string `json:"igdb_url_cover"`
-	SsURLCover    string `json:"ss_url_cover"`
-	MobyURLCover  string `json:"moby_url_cover"`
-	IsUnidentified bool  `json:"is_unidentified"`
-	IsIdentified  bool   `json:"is_identified"`
+	LibretroID       string `json:"libretro_id,omitempty"`
+	IgdbURLCover     string `json:"igdb_url_cover"`
+	SsURLCover       string `json:"ss_url_cover"`
+	MobyURLCover     string `json:"moby_url_cover"`
+	LibretroURLCover string `json:"libretro_url_cover"`
+	IsUnidentified   bool   `json:"is_unidentified"`
+	IsIdentified     bool   `json:"is_identified"`
 }
 
 // searchRoms serves GET /api/search/roms?rom_id=&search_term=&search_by=name|id,
@@ -129,6 +131,22 @@ func (s *Server) searchRoms(w http.ResponseWriter, r *http.Request) {
 			if games, gerr := s.meta.Search(ctx, term); gerr == nil {
 				for _, g := range games {
 					add(s.meta.Name(), g)
+				}
+			}
+		}
+	}
+
+	// Enrich each matched title with a libretro box-art cover (an alternative
+	// the user can pick), mirroring the Python search endpoint. Keyed by the
+	// card's name, scoped to the platform's libretro system.
+	if s.libretro != nil {
+		plat, _ := s.st.GetPlatform(ctx, rom.PlatformID)
+		if plat != nil && plat.Slug != "" {
+			for _, k := range order {
+				e := merged[k]
+				if cov := s.libretro.CoverFor(ctx, e.Name, plat.Slug); cov != nil {
+					e.LibretroID = cov.ID
+					e.LibretroURLCover = cov.CoverURL
 				}
 			}
 		}

@@ -239,6 +239,8 @@ func (f *fakeStore) ScreenshotLocation(context.Context, int64) (string, string, 
 func (f *fakeStore) DeleteScreenshot(context.Context, int64) error { return nil }
 func (f *fakeStore) GetPlatform(_ context.Context, id int64) (*store.Platform, error) { return &store.Platform{ID:id, Name:"Switch", DisplayName:"Switch", Slug:"switch"}, nil }
 func (f *fakeStore) GetPlatformSourceIDs(_ context.Context, id int64) (*store.PlatformSourceIDs, error) { return &store.PlatformSourceIDs{}, nil }
+func (f *fakeStore) UnidentifiedHashedRoms(_ context.Context, limit int) ([]store.HashedRom, error) { return nil, nil }
+func (f *fakeStore) SetHashMatchIDs(_ context.Context, romID int64, igdb, hasheous, tgdb *int64) error { return nil }
 func (f *fakeStore) UpdatePlatformCustomName(_ context.Context, id int64, cn string) (*store.Platform, error) { return &store.Platform{ID:id, Name:"Switch", DisplayName:cn, Slug:"switch"}, nil }
 func (f *fakeStore) DownloadQueue(context.Context) ([]store.QueuedRom, error) {
 	return []store.QueuedRom{{RomID: 5, PlatformID: 1, Name: "x.nsp", Status: "wanted"}}, nil

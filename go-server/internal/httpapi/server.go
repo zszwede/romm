@@ -121,6 +121,8 @@ type DataStore interface {
 	DeleteClientToken(ctx context.Context, userID, id int64) (bool, error)
 	GetPlatform(ctx context.Context, id int64) (*store.Platform, error)
 	GetPlatformSourceIDs(ctx context.Context, platformID int64) (*store.PlatformSourceIDs, error)
+	UnidentifiedHashedRoms(ctx context.Context, limit int) ([]store.HashedRom, error)
+	SetHashMatchIDs(ctx context.Context, romID int64, igdb, hasheous, tgdb *int64) error
 	UpdatePlatformCustomName(ctx context.Context, id int64, customName string) (*store.Platform, error)
 	InsertScreenshot(ctx context.Context, sc store.Screenshot) (int64, error)
 	ListScreenshots(ctx context.Context, romID, userID int64) ([]store.Screenshot, error)
@@ -139,6 +141,11 @@ type Deps struct {
 	// MetadataSS, when set, is the ScreenScraper provider (this install's primary
 	// source). It is platform-scoped, so it is held separately from Metadata.
 	MetadataSS metadata.PlatformSearcher
+	// Libretro, when set, enriches manual-match results with box-art covers from
+	// the public libretro-thumbnails server.
+	Libretro *metadata.Libretro
+	// Hasheous, when set, identifies ROMs by file hash during a hashed scan.
+	Hasheous *metadata.Hasheous
 	Virtual      VirtualService
 	Achievements AchievementService
 	// WebRoot is a directory holding the built frontend (the real Vue dist +
@@ -168,6 +175,8 @@ type Server struct {
 	libraryRoot string // parent of scanRoot; roms resolve as <libraryRoot>/<fs_path>/<fs_name>
 	meta        metadata.Provider
 	ss          metadata.PlatformSearcher
+	libretro    *metadata.Libretro
+	hasheous    *metadata.Hasheous
 	virt        VirtualService
 	ach         AchievementService
 	assetsRoot    string
@@ -191,6 +200,8 @@ func New(d Deps) *Server {
 		scanRoot:   d.ScanRoot,
 		meta:       d.Metadata,
 		ss:         d.MetadataSS,
+		libretro:   d.Libretro,
+		hasheous:   d.Hasheous,
 		virt:       d.Virtual,
 		ach:           d.Achievements,
 		assetsRoot:    d.AssetsRoot,
@@ -726,9 +737,42 @@ func (s *Server) handleScanEvent(args []json.RawMessage) {
 			s.sockets.Emit("scan:done_ko", map[string]any{"message": err.Error()})
 			return err
 		}
+		// Identify still-unmatched roms by file hash via Hasheous (bounded).
+		s.identifyByHash(ctx)
 		s.sockets.Emit("scan:done", map[string]any{})
 		return nil
 	})
+}
+
+// identifyByHash runs a bounded Hasheous pass over unidentified, hashed roms,
+// recording the IGDB/TheGamesDB ids it resolves. Best-effort: an unreachable
+// Hasheous or a single failed lookup never aborts the scan. No-op when Hasheous
+// is disabled. It only touches roms with no id yet, so it never re-queries the
+// already-identified library.
+func (s *Server) identifyByHash(ctx context.Context) {
+	if s.hasheous == nil {
+		return
+	}
+	cands, err := s.st.UnidentifiedHashedRoms(ctx, 500)
+	if err != nil || len(cands) == 0 {
+		return
+	}
+	matched := 0
+	for _, c := range cands {
+		if ctx.Err() != nil {
+			return
+		}
+		m, err := s.hasheous.LookupByHash(ctx, c.MD5, c.SHA1, c.CRC)
+		if err != nil || m == nil {
+			continue
+		}
+		if err := s.st.SetHashMatchIDs(ctx, c.ID, m.IgdbID, m.HasheousID, m.TgdbID); err == nil {
+			matched++
+		}
+	}
+	if matched > 0 {
+		log.Printf("hasheous: identified %d/%d unmatched roms by hash", matched, len(cands))
+	}
 }
 
 func (s *Server) triggerScan(w http.ResponseWriter, r *http.Request) {

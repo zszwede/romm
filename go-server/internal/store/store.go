@@ -514,6 +514,63 @@ func (s *Store) GetPlatform(ctx context.Context, id int64) (*Platform, error) {
 	return &p, nil
 }
 
+// HashedRom is an unidentified rom with its file hashes, for a Hasheous pass.
+type HashedRom struct {
+	ID   int64
+	MD5  string
+	SHA1 string
+	CRC  string
+}
+
+// UnidentifiedHashedRoms returns up to limit real roms that have at least one
+// file hash but no IGDB/SS/Hasheous id yet — the candidates a hash-lookup pass
+// can still identify. Bounded so a scan never fans out over the whole library.
+func (s *Store) UnidentifiedHashedRoms(ctx context.Context, limit int) ([]HashedRom, error) {
+	if limit <= 0 || limit > 2000 {
+		limit = 500
+	}
+	rows, err := s.DB.QueryContext(ctx, `
+		SELECT id, COALESCE(md5_hash,''), COALESCE(sha1_hash,''), COALESCE(crc_hash,'')
+		FROM roms
+		WHERE igdb_id IS NULL AND ss_id IS NULL AND hasheous_id IS NULL
+		  AND COALESCE(is_virtual,0) = 0 AND COALESCE(missing_from_fs,0) = 0
+		  AND (md5_hash IS NOT NULL OR sha1_hash IS NOT NULL OR crc_hash IS NOT NULL)
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []HashedRom
+	for rows.Next() {
+		var r HashedRom
+		if err := rows.Scan(&r.ID, &r.MD5, &r.SHA1, &r.CRC); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// SetHashMatchIDs records the provider ids a Hasheous lookup resolved, filling
+// only the columns that are still NULL so an id set by another source stands.
+func (s *Store) SetHashMatchIDs(ctx context.Context, romID int64, igdb, hasheous, tgdb *int64) error {
+	_, err := s.DB.ExecContext(ctx, `
+		UPDATE roms SET
+			igdb_id     = COALESCE(igdb_id, ?),
+			hasheous_id = COALESCE(hasheous_id, ?),
+			tgdb_id     = COALESCE(tgdb_id, ?),
+			updated_at  = NOW()
+		WHERE id = ?`, ptrArg(igdb), ptrArg(hasheous), ptrArg(tgdb), romID)
+	return err
+}
+
+func ptrArg(p *int64) any {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
 // PlatformSourceIDs holds a platform's provider-specific system ids, used to
 // scope a metadata search (SS's systemeid, IGDB's platform id).
 type PlatformSourceIDs struct {

@@ -50,6 +50,12 @@ type Config struct {
 	SSUser        string // SCREENSCRAPER_USER
 	SSPassword    string // SCREENSCRAPER_PASSWORD
 
+	// Hasheous (hash identification) and Libretro (box-art covers) are public,
+	// keyless sources, enabled by default like the Python app. Set the matching
+	// *_API_ENABLED env to a falsey value to turn one off.
+	HasheousEnabled bool
+	LibretroEnabled bool
+
 	// MergeService* point at the RommDownloader merge service for the
 	// virtual-download workflow. (The Python app keeps these in its Downloads
 	// config; the Go server reads them from the environment.)
@@ -111,6 +117,8 @@ func FromEnv() Config {
 		SSDevPassword:     os.Getenv("SCREENSCRAPER_DEV_PASSWORD"),
 		SSUser:            os.Getenv("SCREENSCRAPER_USER"),
 		SSPassword:        os.Getenv("SCREENSCRAPER_PASSWORD"),
+		HasheousEnabled:   boolEnvDefault("HASHEOUS_API_ENABLED", true),
+		LibretroEnabled:   boolEnvDefault("LIBRETRO_API_ENABLED", true),
 		MergeServiceURL:   os.Getenv("MERGE_SERVICE_URL"),
 		MergeServiceToken: os.Getenv("MERGE_SERVICE_TOKEN"),
 		WebRoot:           os.Getenv("ROMM_WEB_ROOT"),
