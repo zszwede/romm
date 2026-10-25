@@ -111,6 +111,7 @@ type DataStore interface {
 	ListRomNotes(ctx context.Context, romID, userID int64) ([]store.Note, error)
 	SetRomNote(ctx context.Context, userID, romID int64, markdown string, isPublic bool) (*store.Note, error)
 	ClearRomNote(ctx context.Context, userID, romID int64) error
+	SetRomManual(ctx context.Context, romID int64, relPath string) error
 	GetPlatform(ctx context.Context, id int64) (*store.Platform, error)
 	UpdatePlatformCustomName(ctx context.Context, id int64, customName string) (*store.Platform, error)
 	InsertScreenshot(ctx context.Context, sc store.Screenshot) (int64, error)
@@ -241,6 +242,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/roms/{id}/content/{name...}", s.getRomContent)
 	s.mux.HandleFunc("GET /api/roms/{id}/achievements", s.getAchievements)
 	s.mux.HandleFunc("GET /api/roms/{id}/similar", s.getSimilarRoms)
+	s.mux.HandleFunc("POST /api/roms/{id}/manuals", s.uploadManual)
+	s.mux.HandleFunc("DELETE /api/roms/{id}/manuals", s.deleteManual)
 	s.mux.HandleFunc("GET /api/roms/{id}/notes", s.listRomNotes)
 	s.mux.HandleFunc("POST /api/roms/{id}/notes", s.setRomNote)
 	s.mux.HandleFunc("PUT /api/roms/{id}/notes/{note_id}", s.setRomNote)

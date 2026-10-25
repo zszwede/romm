@@ -526,3 +526,14 @@ func (s *Store) UpdatePlatformCustomName(ctx context.Context, id int64, customNa
 	}
 	return s.GetPlatform(ctx, id)
 }
+
+// SetRomManual records an uploaded manual's path on the rom (path_manual).
+func (s *Store) SetRomManual(ctx context.Context, romID int64, relPath string) error {
+	var v any
+	if relPath != "" {
+		v = relPath
+	}
+	_, err := s.DB.ExecContext(ctx,
+		`UPDATE roms SET path_manual = ?, updated_at = NOW() WHERE id = ?`, v, romID)
+	return err
+}
