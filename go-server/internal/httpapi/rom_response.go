@@ -199,9 +199,11 @@ func romJSON(r *store.RomFull, ru *store.RomUser, userID int64, detail bool) map
 		"rom_user": romUserJSON(ru, userID, r.ID),
 
 		// sibling/file collections — populated once those endpoints land.
-		"siblings":     []any{},
-		"user_notes":   []any{},
-		"files":        []any{},
+		"sibling_roms":       []any{},
+		"user_notes":         []any{},
+		"files":              []any{},
+		"merged_screenshots": []any{},
+		"merged_ra_metadata": nil,
 	}
 
 	if detail {
