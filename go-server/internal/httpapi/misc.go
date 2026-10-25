@@ -63,6 +63,26 @@ func (s *Server) getSmartCollections(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, []any{})
 }
 
+// getAuditEvents returns the audit log (empty; not recorded in this build) as a
+// paged response the EventLog viewer reads.
+func (s *Server) getAuditEvents(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.authUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": []any{}, "total": 0})
+}
+
+// getLogs returns backend log entries (empty; the Go server logs to stdout/the
+// service journal, not an in-app viewer) as a bare array (list[LogEntrySchema]).
+func (s *Server) getLogs(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.authUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	writeJSON(w, http.StatusOK, []any{})
+}
+
 // getFirmware returns platform BIOS/firmware (none in this build) as a bare
 // array (list[FirmwareSchema]).
 func (s *Server) getFirmware(w http.ResponseWriter, r *http.Request) {

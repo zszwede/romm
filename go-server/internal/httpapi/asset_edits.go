@@ -88,6 +88,15 @@ func removeAssetFile(root string, a *store.Asset) error {
 	return os.Remove(filepath.Join(root, filepath.FromSlash(a.FilePath), a.FileName))
 }
 
+// activityEntries returns recent activity (empty; not recorded) as a bare array.
+func (s *Server) activityEntries(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.authUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	writeJSON(w, http.StatusOK, []any{})
+}
+
 // activityHeartbeat is the presence ping the app sends; it needs no persistence
 // in a single-user setup.
 func (s *Server) activityHeartbeat(w http.ResponseWriter, r *http.Request) {

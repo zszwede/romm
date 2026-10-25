@@ -347,6 +347,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/streaming/config", s.getStreamingConfig)
 	s.mux.HandleFunc("GET /api/roms/random", s.getRandomRom)
 	s.mux.HandleFunc("GET /api/firmware", s.getFirmware)
+	s.mux.HandleFunc("GET /api/logs", s.getLogs)
+	s.mux.HandleFunc("GET /api/audit-events", s.getAuditEvents)
 
 	// Music playlists.
 	s.mux.HandleFunc("GET /api/music/playlists", s.listPlaylists)
@@ -374,6 +376,8 @@ func (s *Server) routes() {
 		}
 	}
 	// Presence heartbeat (no persistence needed in a single-user setup).
+	s.mux.HandleFunc("GET /api/activity", s.activityEntries)
+	s.mux.HandleFunc("GET /api/activity/rom/{id}", s.activityEntries)
 	s.mux.HandleFunc("POST /api/activity/heartbeat", s.activityHeartbeat)
 	s.mux.HandleFunc("DELETE /api/activity/heartbeat", s.activityHeartbeat)
 
