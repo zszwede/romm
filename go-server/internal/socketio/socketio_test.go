@@ -107,6 +107,31 @@ func TestEmit_ReachesClient(t *testing.T) {
 	}
 }
 
+func TestClientEvent_Dispatched(t *testing.T) {
+	hub, conn, _ := dialTest(t)
+	got := make(chan []json.RawMessage, 1)
+	hub.On("scan", func(args []json.RawMessage) { got <- args })
+
+	_ = readText(t, conn) // OPEN
+	if err := conn.WriteMessage(websocket.TextMessage, []byte("40")); err != nil {
+		t.Fatal(err)
+	}
+	_ = readText(t, conn) // CONNECT ack
+
+	// Client emits ["scan", {"type":"quick"}] as a Socket.IO EVENT ("42" + array).
+	if err := conn.WriteMessage(websocket.TextMessage, []byte(`42["scan",{"type":"quick"}]`)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case args := <-got:
+		if len(args) != 1 || string(args[0]) != `{"type":"quick"}` {
+			t.Fatalf("handler got wrong args: %v", args)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("scan handler was not dispatched")
+	}
+}
+
 func TestClientPingGetsPong(t *testing.T) {
 	_, conn, _ := dialTest(t)
 	_ = readText(t, conn) // OPEN

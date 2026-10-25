@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,13 +18,22 @@ import (
 // Save/state sync. Files live under <assetsRoot>/<kind>/user-<uid>/rom-<id>/.
 // kind is always "saves" or "states" (route-literal), never user input.
 
+// assetRomID resolves the rom id from the path ({id}) or, for the /api/saves
+// and /api/states routes, the rom_id query param.
+func assetRomID(r *http.Request) int64 {
+	if id := int64(atoiDefault(r.PathValue("id"), 0)); id > 0 {
+		return id
+	}
+	return int64(atoiDefault(r.URL.Query().Get("rom_id"), 0))
+}
+
 func (s *Server) listAssets(w http.ResponseWriter, r *http.Request, kind string) {
 	claims, ok := s.authUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	romID := int64(atoiDefault(r.PathValue("id"), 0))
+	romID := assetRomID(r)
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	uid, err := s.st.UserIDByUsername(ctx, claims.Username)
@@ -36,7 +46,56 @@ func (s *Server) listAssets(w http.ResponseWriter, r *http.Request, kind string)
 		writeErr(w, http.StatusInternalServerError, "query failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	// The frontend's save/state list reads a bare array of SaveSchema/StateSchema.
+	out := make([]map[string]any, 0, len(items))
+	for i := range items {
+		out = append(out, assetJSON(&items[i], kind))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// assetJSON builds a SaveSchema/StateSchema the frontend accepts.
+func assetJSON(a *store.Asset, kind string) map[string]any {
+	ext := ""
+	if dot := strings.LastIndex(a.FileName, "."); dot >= 0 {
+		ext = a.FileName[dot+1:]
+	}
+	m := map[string]any{
+		"id":               a.ID,
+		"rom_id":           a.RomID,
+		"user_id":          a.UserID,
+		"file_name":        a.FileName,
+		"file_name_no_ext": strings.TrimSuffix(a.FileName, "."+ext),
+		"file_name_no_tags": strings.TrimSuffix(a.FileName, "."+ext),
+		"file_extension":   ext,
+		"file_path":        a.FilePath,
+		"file_size_bytes":  a.SizeBytes,
+		"download_path":    "/api/" + kind + "/" + strconv.FormatInt(a.ID, 10) + "/content/" + url.PathEscape(a.FileName),
+		"emulator":         emptyToNil(a.Emulator),
+		"missing_from_fs":  false,
+		"is_public":        false,
+		"is_favorite":      false,
+		"content_hash":     nil,
+		"created_at":       time.Now().UTC(),
+		"updated_at":       time.Now().UTC(),
+	}
+	if kind == "saves" {
+		m["slot"] = nil
+		m["screenshot"] = nil
+		m["origin_device_id"] = nil
+		m["device_syncs"] = []any{}
+	} else {
+		m["core"] = nil
+		m["disc_file_id"] = nil
+	}
+	return m
+}
+
+func emptyToNil(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 func (s *Server) uploadAsset(w http.ResponseWriter, r *http.Request, kind string) {
@@ -49,7 +108,7 @@ func (s *Server) uploadAsset(w http.ResponseWriter, r *http.Request, kind string
 		writeErr(w, http.StatusServiceUnavailable, "assets root not configured")
 		return
 	}
-	romID := int64(atoiDefault(r.PathValue("id"), 0))
+	romID := assetRomID(r)
 	if romID <= 0 {
 		writeErr(w, http.StatusBadRequest, "bad id")
 		return
@@ -91,17 +150,21 @@ func (s *Server) uploadAsset(w http.ResponseWriter, r *http.Request, kind string
 		writeErr(w, http.StatusInternalServerError, "write failed")
 		return
 	}
-	id, err := s.st.InsertAsset(ctx, kind, store.Asset{
+	emulator := r.FormValue("emulator")
+	if emulator == "" {
+		emulator = r.URL.Query().Get("emulator")
+	}
+	asset := store.Asset{
 		RomID: romID, UserID: uid, FileName: name, FilePath: relDir,
-		SizeBytes: n, Emulator: r.FormValue("emulator"),
-	})
+		SizeBytes: n, Emulator: emulator,
+	}
+	id, err := s.st.InsertAsset(ctx, kind, asset)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "db insert failed")
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"id": id, "file_name": name, "file_size_bytes": n, "rom_id": romID,
-	})
+	asset.ID = id
+	writeJSON(w, http.StatusCreated, assetJSON(&asset, kind))
 }
 
 func (s *Server) assetContent(w http.ResponseWriter, r *http.Request, kind string) {

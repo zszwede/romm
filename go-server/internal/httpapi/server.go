@@ -140,6 +140,7 @@ type Server struct {
 	oidcUsers   oidc.UserStore
 	netplay     *netplay.Hub
 	sockets     *socketio.Hub
+	uploads     *uploadManager
 	mux         *http.ServeMux
 }
 
@@ -164,6 +165,10 @@ func New(d Deps) *Server {
 	// so for now the hub is fed only by tests and the REST list reflects it.
 	s.netplay = netplay.NewHub(netplay.NewRoomStore(), netplayNoopEmitter{}, denyAllAuthz{})
 	s.sockets = socketio.NewHub()
+	// The frontend's Scan page triggers a scan by emitting a "scan" socket
+	// event and watches scan:* events for progress.
+	s.sockets.On("scan", s.handleScanEvent)
+	s.uploads = newUploadManager(filepath.Join(os.TempDir(), "romm-go-uploads"))
 	if d.ScanRoot != "" {
 		s.libraryRoot = filepath.Dir(d.ScanRoot)
 	}
@@ -209,6 +214,20 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/collections/{id}/roms", s.addRomsToCollection)
 	s.mux.HandleFunc("DELETE /api/collections/{id}/roms", s.removeRomsFromCollection)
 	s.mux.HandleFunc("PUT /api/roms/{id}/props", s.setRomProps)
+	// Chunked ROM upload. The chunk PUT goes through a general 2-segment matcher
+	// because PUT /api/roms/upload/{id} would conflict with the more-specific
+	// PUT /api/roms/{id}/props in the stdlib mux; props stays specific and wins,
+	// and this general pattern dispatches the "upload" prefix.
+	s.mux.HandleFunc("POST /api/roms/upload/start", s.uploadStart)
+	s.mux.HandleFunc("POST /api/roms/upload/{id}/cancel", s.uploadCancel)
+	s.mux.HandleFunc("PUT /api/roms/{seg}/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if r.PathValue("seg") == "upload" {
+			s.uploadChunk(w, r)
+			return
+		}
+		writeErr(w, http.StatusNotFound, "not found")
+	})
+
 	s.mux.HandleFunc("POST /api/scan", s.triggerScan)
 	s.mux.HandleFunc("GET /api/scan", s.listScans)
 	s.mux.HandleFunc("GET /api/scan/{id}", s.scanStatus)
@@ -269,11 +288,15 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/music/playlists/{id}/tracks", s.addTrack)
 	s.mux.HandleFunc("DELETE /api/music/tracks/{tid}", s.removeTrack)
 
-	// Save/state sync: identical routes for both kinds.
+	// Save/state sync: identical routes for both kinds. The frontend uploads to
+	// the top-level /api/{saves,states}?rom_id= and lists the same way; the
+	// per-rom routes are kept for API clients.
 	for _, kind := range []string{"saves", "states"} {
 		k := kind
 		s.mux.HandleFunc("GET /api/roms/{id}/"+k, func(w http.ResponseWriter, r *http.Request) { s.listAssets(w, r, k) })
 		s.mux.HandleFunc("POST /api/roms/{id}/"+k, func(w http.ResponseWriter, r *http.Request) { s.uploadAsset(w, r, k) })
+		s.mux.HandleFunc("GET /api/"+k, func(w http.ResponseWriter, r *http.Request) { s.listAssets(w, r, k) })
+		s.mux.HandleFunc("POST /api/"+k, func(w http.ResponseWriter, r *http.Request) { s.uploadAsset(w, r, k) })
 		s.mux.HandleFunc("GET /api/"+k+"/{id}/content", func(w http.ResponseWriter, r *http.Request) { s.assetContent(w, r, k) })
 		s.mux.HandleFunc("DELETE /api/"+k+"/{id}", func(w http.ResponseWriter, r *http.Request) { s.deleteAsset(w, r, k) })
 	}
@@ -577,6 +600,31 @@ func (s *Server) setRomProps(w http.ResponseWriter, r *http.Request) {
 
 // triggerScan enqueues a background library scan. ?hash=0 skips hashing for a
 // fast inventory pass. Requires a valid bearer token.
+// handleScanEvent runs a library scan requested over the socket and emits the
+// scan:* progress/completion events the frontend watches. Enqueued on the
+// worker so a long scan doesn't block, exactly like POST /api/scan.
+func (s *Server) handleScanEvent(args []json.RawMessage) {
+	if s.queue == nil || s.scanRoot == "" {
+		s.sockets.Emit("scan:done_ko", map[string]any{"message": "scanning not configured"})
+		return
+	}
+	root := s.scanRoot
+	s.queue.Enqueue("library-scan", func(ctx context.Context) error {
+		s.sockets.Emit("scan:scanning_platform", map[string]any{})
+		dirs, err := s.st.ListPlatformDirs(ctx)
+		if err != nil {
+			s.sockets.Emit("scan:done_ko", map[string]any{"message": err.Error()})
+			return err
+		}
+		if _, err := scan.Platforms(ctx, root, dirs, s.st, true); err != nil {
+			s.sockets.Emit("scan:done_ko", map[string]any{"message": err.Error()})
+			return err
+		}
+		s.sockets.Emit("scan:done", map[string]any{})
+		return nil
+	})
+}
+
 func (s *Server) triggerScan(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.authUser(r); !ok {
 		writeErr(w, http.StatusUnauthorized, "unauthorized")

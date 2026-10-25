@@ -34,15 +34,39 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
+// Handler reacts to a client-emitted event. args are the JSON-encoded event
+// arguments (everything after the event name in the Socket.IO EVENT array).
+type Handler func(args []json.RawMessage)
+
 // Hub tracks connected clients so the server can broadcast events to all of
-// them (e.g. scan progress). Safe for concurrent use.
+// them (e.g. scan progress), and dispatches client-emitted events to handlers.
+// Safe for concurrent use.
 type Hub struct {
-	mu      sync.Mutex
-	clients map[*client]struct{}
-	seq     int64
+	mu       sync.Mutex
+	clients  map[*client]struct{}
+	handlers map[string]Handler
+	seq      int64
 }
 
-func NewHub() *Hub { return &Hub{clients: map[*client]struct{}{}} }
+func NewHub() *Hub {
+	return &Hub{clients: map[*client]struct{}{}, handlers: map[string]Handler{}}
+}
+
+// On registers a handler for a client-emitted event name (e.g. "scan").
+func (h *Hub) On(event string, fn Handler) {
+	h.mu.Lock()
+	h.handlers[event] = fn
+	h.mu.Unlock()
+}
+
+func (h *Hub) dispatch(event string, args []json.RawMessage) {
+	h.mu.Lock()
+	fn := h.handlers[event]
+	h.mu.Unlock()
+	if fn != nil {
+		go fn(args) // don't block the socket read loop
+	}
+}
 
 type client struct {
 	hub  *Hub
@@ -151,11 +175,33 @@ func (c *client) handle(msg []byte) {
 			c.write(websocket.TextMessage, []byte(`40{"sid":"`+c.hub.nextSID()+`"}`))
 		case '1': // DISCONNECT
 			// client leaving a namespace; nothing to persist.
-		case '2': // EVENT from client -> no server-side handlers yet; ignore.
+		case '2': // EVENT from client -> dispatch to a registered handler.
+			c.handleEvent(msg[2:])
 		}
 	case '1': // Engine.IO close
 		// loop will end on the next read error.
 	}
+}
+
+// handleEvent parses a Socket.IO EVENT payload (a JSON array whose first
+// element is the event name) and dispatches it. A leading ack id (digits before
+// the array) is tolerated and ignored.
+func (c *client) handleEvent(payload []byte) {
+	// Skip an optional numeric ack id before the '['.
+	i := 0
+	for i < len(payload) && payload[i] >= '0' && payload[i] <= '9' {
+		i++
+	}
+	payload = payload[i:]
+	var arr []json.RawMessage
+	if err := json.Unmarshal(payload, &arr); err != nil || len(arr) == 0 {
+		return
+	}
+	var name string
+	if err := json.Unmarshal(arr[0], &name); err != nil {
+		return
+	}
+	c.hub.dispatch(name, arr[1:])
 }
 
 func (c *client) pingLoop() {

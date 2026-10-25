@@ -638,6 +638,37 @@ func TestSaveSync(t *testing.T) {
 	if w := do(s, "POST", "/api/roms/7/saves", "", ""); w.Code != 401 {
 		t.Errorf("no token upload: want 401 got %d", w.Code)
 	}
+
+	// The frontend's actual contract: POST /api/saves?rom_id=7 (top-level route,
+	// rom id in the query, not the path).
+	var buf2 bytes.Buffer
+	mw2 := multipart.NewWriter(&buf2)
+	fw2, _ := mw2.CreateFormFile("file", "zelda.state")
+	fw2.Write([]byte("STATE"))
+	mw2.Close()
+	r2 := httptest.NewRequest("POST", "/api/states?rom_id=7&emulator=mgba", &buf2)
+	r2.Header.Set("Content-Type", mw2.FormDataContentType())
+	r2.Header.Set("Authorization", "Bearer "+tok)
+	w2 := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w2, r2)
+	if w2.Code != 201 {
+		t.Fatalf("top-level state upload: code %d body %s", w2.Code, w2.Body.String())
+	}
+	// Response is a StateSchema with a download_path and rom_id.
+	m := decodeBody(t, w2.Body.Bytes())
+	if m["rom_id"] != float64(7) || m["file_name"] != "zelda.state" {
+		t.Fatalf("state response wrong: %v", m)
+	}
+	if dp, _ := m["download_path"].(string); !strings.Contains(dp, "/api/states/") {
+		t.Errorf("download_path wrong: %v", m["download_path"])
+	}
+	if _, err := os.ReadFile(filepath.Join(tmp, "states", "user-42", "rom-7", "zelda.state")); err != nil {
+		t.Errorf("state file not stored: %v", err)
+	}
+	// List via the top-level query route returns a bare array.
+	if lw := do(s, "GET", "/api/states?rom_id=7", tok, ""); lw.Code != 200 || lw.Body.Bytes()[0] != '[' {
+		t.Errorf("top-level list not a bare array: code %d body %s", lw.Code, lw.Body.String())
+	}
 }
 
 func itoa(n int64) string {
