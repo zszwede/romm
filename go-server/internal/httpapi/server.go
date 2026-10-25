@@ -223,6 +223,7 @@ func (s *Server) routes() {
 	// and this general pattern dispatches the "upload" prefix.
 	s.mux.HandleFunc("POST /api/roms/upload/start", s.uploadStart)
 	s.mux.HandleFunc("POST /api/roms/upload/{id}/cancel", s.uploadCancel)
+	s.mux.HandleFunc("POST /api/roms/upload/{id}/complete", s.uploadComplete)
 	s.mux.HandleFunc("PUT /api/roms/{seg}/{id}", func(w http.ResponseWriter, r *http.Request) {
 		if r.PathValue("seg") == "upload" {
 			s.uploadChunk(w, r)

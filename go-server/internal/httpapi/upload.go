@@ -128,14 +128,24 @@ func (s *Server) uploadChunk(w http.ResponseWriter, r *http.Request) {
 	}
 	sess.mu.Lock()
 	sess.received[idx] = true
-	done := len(sess.received) >= sess.totalChunks
 	sess.mu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]any{"received": idx})
+}
 
-	if !done {
-		writeJSON(w, http.StatusOK, map[string]any{"received": idx})
+// uploadComplete finalizes a chunked upload: assembles the chunks into the
+// library and rescans the platform. The frontend calls this after the last PUT.
+func (s *Server) uploadComplete(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.collectionUserScope(w, r, "roms.write"); !ok {
 		return
 	}
-	// Last chunk: assemble into the library and rescan the platform.
+	id := r.PathValue("id")
+	s.uploads.mu.Lock()
+	sess := s.uploads.sessions[id]
+	s.uploads.mu.Unlock()
+	if sess == nil {
+		writeErr(w, http.StatusNotFound, "unknown upload")
+		return
+	}
 	if err := s.assembleUpload(r.Context(), sess); err != nil {
 		writeErr(w, http.StatusInternalServerError, "assemble failed: "+err.Error())
 		return

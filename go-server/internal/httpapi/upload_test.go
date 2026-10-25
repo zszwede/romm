@@ -45,8 +45,16 @@ func TestChunkedUpload_Assembles(t *testing.T) {
 	if ww := putChunk("0", "HELLO"); ww.Code != 200 {
 		t.Fatalf("chunk 0: %d %s", ww.Code, ww.Body.String())
 	}
-	if ww := putChunk("1", "WORLD"); ww.Code != 201 {
-		t.Fatalf("final chunk: %d %s", ww.Code, ww.Body.String())
+	if ww := putChunk("1", "WORLD"); ww.Code != 200 {
+		t.Fatalf("chunk 1: %d %s", ww.Code, ww.Body.String())
+	}
+	// complete finalizes the upload.
+	cr := httptest.NewRequest("POST", "/api/roms/upload/"+id+"/complete", nil)
+	cr.Header.Set("Authorization", "Bearer "+tok)
+	cw := httptest.NewRecorder()
+	s.Handler().ServeHTTP(cw, cr)
+	if cw.Code != 201 {
+		t.Fatalf("complete: %d %s", cw.Code, cw.Body.String())
 	}
 
 	// assembled file lands in <scanRoot>/switch/Test (USA).nsp
