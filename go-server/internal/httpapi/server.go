@@ -108,6 +108,8 @@ type DataStore interface {
 	ListRomNotes(ctx context.Context, romID, userID int64) ([]store.Note, error)
 	SetRomNote(ctx context.Context, userID, romID int64, markdown string, isPublic bool) (*store.Note, error)
 	ClearRomNote(ctx context.Context, userID, romID int64) error
+	GetPlatform(ctx context.Context, id int64) (*store.Platform, error)
+	UpdatePlatformCustomName(ctx context.Context, id int64, customName string) (*store.Platform, error)
 }
 
 // Deps are the server's collaborators. Passed as a struct so new ones can be
@@ -212,6 +214,14 @@ func (s *Server) Handler() http.Handler { return logging(s.mux) }
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/heartbeat", s.heartbeatFull)
 	s.mux.HandleFunc("GET /api/platforms", s.listPlatforms)
+	s.mux.HandleFunc("GET /api/platforms/supported", s.supportedPlatforms)
+	s.mux.HandleFunc("GET /api/platforms/filesystem", s.filesystemPlatforms)
+	s.mux.HandleFunc("GET /api/platforms/{id}", s.getPlatform)
+	s.mux.HandleFunc("PUT /api/platforms/{id}", s.updatePlatform)
+	s.mux.HandleFunc("POST /api/tasks/run/{name}", s.runTask)
+	s.mux.HandleFunc("GET /api/music/favorites", s.musicFavorites)
+	s.mux.HandleFunc("POST /api/music/favorites", s.musicFavorites)
+	s.mux.HandleFunc("DELETE /api/music/favorites", s.musicFavorites)
 	s.mux.HandleFunc("GET /api/roms", s.listRoms)
 	s.mux.HandleFunc("GET /api/roms/{id}", s.getRom)
 	s.mux.HandleFunc("GET /api/roms/{id}/content", s.getRomContent)

@@ -495,3 +495,34 @@ func (s *Store) GetRomRAID(ctx context.Context, id int64) (int, bool, error) {
 	}
 	return int(ra.Int64), true, nil
 }
+
+// GetPlatform returns one platform with rom_count.
+func (s *Store) GetPlatform(ctx context.Context, id int64) (*Platform, error) {
+	var p Platform
+	err := s.DB.QueryRowContext(ctx, `
+		SELECT p.id, COALESCE(NULLIF(p.name,''),p.slug),
+		       COALESCE(NULLIF(p.custom_name,''),NULLIF(p.name,''),p.slug),
+		       p.slug, COALESCE(p.fs_slug,''), (SELECT COUNT(*) FROM roms r WHERE r.platform_id=p.id)
+		FROM platforms p WHERE p.id = ?`, id).
+		Scan(&p.ID, &p.Name, &p.DisplayName, &p.Slug, &p.FsSlug, &p.RomCount)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// UpdatePlatformCustomName sets a platform's custom display name ("" clears it).
+func (s *Store) UpdatePlatformCustomName(ctx context.Context, id int64, customName string) (*Platform, error) {
+	var v any
+	if customName != "" {
+		v = customName
+	}
+	if _, err := s.DB.ExecContext(ctx,
+		`UPDATE platforms SET custom_name = ?, updated_at = NOW() WHERE id = ?`, v, id); err != nil {
+		return nil, err
+	}
+	return s.GetPlatform(ctx, id)
+}
