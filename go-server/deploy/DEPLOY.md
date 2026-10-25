@@ -31,6 +31,12 @@ feature (queue, merge, exclude, sources CRUD, the archive.org scraper). Verified
 end to end in a browser with a zero-error console; 18 Go packages pass
 `go test -race`, 6 integration tests against the live schema.
 
+Metadata matching runs against **ScreenScraper** (this install's primary source,
+platform-scoped) and **IGDB**; set `SCREENSCRAPER_DEV_ID`/`_DEV_PASSWORD` (+
+`SCREENSCRAPER_USER`/`_PASSWORD` for the higher quota) and the IGDB pair in the
+env file. The manual-match dialog (`GET /api/search/roms`) queries both and
+merges hits per title.
+
 The **one** feature it does not carry is remote-session **streaming** (the
 session-host that streams real emulator processes over WebRTC — reported
 disabled; play is in-browser via EmulatorJS instead).

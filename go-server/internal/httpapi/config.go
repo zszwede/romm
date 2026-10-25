@@ -50,6 +50,11 @@ func (s *Server) heartbeatBody(ctx context.Context) map[string]any {
 	}
 	igdb := s.meta != nil
 	ra := s.ach != nil
+	ss := s.ss != nil
+	ssDevCreds := false
+	if c, ok := s.ss.(interface{ HasDevCredentials() bool }); ok {
+		ssDevCreds = c.HasDevCredentials()
+	}
 	oidcEnabled := s.oidc != nil
 
 	return map[string]any{
@@ -59,10 +64,10 @@ func (s *Server) heartbeatBody(ctx context.Context) map[string]any {
 			"SHOW_SETUP_WIZARD": false,
 		},
 		"METADATA_SOURCES": map[string]any{
-			"ANY_SOURCE_ENABLED":      igdb || ra,
+			"ANY_SOURCE_ENABLED":      igdb || ra || ss,
 			"IGDB_API_ENABLED":        igdb,
-			"SS_API_ENABLED":          false,
-			"SS_DEV_CREDENTIALS_SET":  false,
+			"SS_API_ENABLED":          ss,
+			"SS_DEV_CREDENTIALS_SET":  ssDevCreds,
 			"MOBY_API_ENABLED":        false,
 			"STEAMGRIDDB_API_ENABLED": false,
 			"RA_API_ENABLED":          ra,

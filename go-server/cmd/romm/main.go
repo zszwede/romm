@@ -40,6 +40,14 @@ func main() {
 		provider = metadata.NewIGDB(cfg.IGDBClientID, cfg.IGDBClientSecret)
 	}
 
+	// ScreenScraper — this install's primary metadata source. Needs the dev
+	// (software) credentials; the user account raises the scrape quota.
+	var ssProvider metadata.PlatformSearcher
+	if cfg.SSDevID != "" && cfg.SSDevPassword != "" {
+		ssProvider = metadata.NewSS(cfg.SSDevID, cfg.SSDevPassword, cfg.SSUser, cfg.SSPassword)
+		log.Printf("ScreenScraper enabled (dev id %s, user %s)", cfg.SSDevID, cfg.SSUser)
+	}
+
 	// Parse config.yml (exclusions, scan priorities, EJS/converto settings).
 	// A missing file is reported to the UI as "not mounted", not fatal.
 	configFile := config.LoadConfigFile(cfg.ConfigFile)
@@ -98,6 +106,7 @@ func main() {
 			Queue:        queue,
 			ScanRoot:     scanRoot,
 			Metadata:     provider,
+			MetadataSS:   ssProvider,
 			Virtual:      virt,
 			Achievements: ach,
 			WebRoot:       cfg.WebRoot,

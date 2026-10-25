@@ -120,6 +120,7 @@ type DataStore interface {
 	CreateClientToken(ctx context.Context, userID int64, name, hashedToken, scopes string, expiresAt *time.Time) (*store.ClientToken, error)
 	DeleteClientToken(ctx context.Context, userID, id int64) (bool, error)
 	GetPlatform(ctx context.Context, id int64) (*store.Platform, error)
+	GetPlatformSourceIDs(ctx context.Context, platformID int64) (*store.PlatformSourceIDs, error)
 	UpdatePlatformCustomName(ctx context.Context, id int64, customName string) (*store.Platform, error)
 	InsertScreenshot(ctx context.Context, sc store.Screenshot) (int64, error)
 	ListScreenshots(ctx context.Context, romID, userID int64) ([]store.Screenshot, error)
@@ -135,6 +136,9 @@ type Deps struct {
 	Queue        *worker.Queue
 	ScanRoot     string // ES-DE roms root, e.g. ROMM_BASE_PATH/library/roms
 	Metadata     metadata.Provider
+	// MetadataSS, when set, is the ScreenScraper provider (this install's primary
+	// source). It is platform-scoped, so it is held separately from Metadata.
+	MetadataSS metadata.PlatformSearcher
 	Virtual      VirtualService
 	Achievements AchievementService
 	// WebRoot is a directory holding the built frontend (the real Vue dist +
@@ -163,6 +167,7 @@ type Server struct {
 	scanRoot    string
 	libraryRoot string // parent of scanRoot; roms resolve as <libraryRoot>/<fs_path>/<fs_name>
 	meta        metadata.Provider
+	ss          metadata.PlatformSearcher
 	virt        VirtualService
 	ach         AchievementService
 	assetsRoot    string
@@ -185,6 +190,7 @@ func New(d Deps) *Server {
 		queue:      d.Queue,
 		scanRoot:   d.ScanRoot,
 		meta:       d.Metadata,
+		ss:         d.MetadataSS,
 		virt:       d.Virtual,
 		ach:           d.Achievements,
 		assetsRoot:    d.AssetsRoot,
@@ -286,6 +292,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/scan", s.listScans)
 	s.mux.HandleFunc("GET /api/scan/{id}", s.scanStatus)
 	s.mux.HandleFunc("GET /api/metadata/search", s.searchMetadata)
+	s.mux.HandleFunc("GET /api/search/roms", s.searchRoms)
 	s.mux.HandleFunc("POST /api/virtual/check", s.virtualCheck)
 	s.mux.HandleFunc("POST /api/virtual/dispatch", s.virtualDispatch)
 	s.mux.HandleFunc("GET /api/virtual/queued", s.virtualQueued)

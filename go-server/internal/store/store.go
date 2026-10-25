@@ -514,6 +514,30 @@ func (s *Store) GetPlatform(ctx context.Context, id int64) (*Platform, error) {
 	return &p, nil
 }
 
+// PlatformSourceIDs holds a platform's provider-specific system ids, used to
+// scope a metadata search (SS's systemeid, IGDB's platform id).
+type PlatformSourceIDs struct {
+	IgdbID *int64
+	SsID   *int64
+	MobyID *int64
+}
+
+// GetPlatformSourceIDs returns the platform's provider system ids (nil when the
+// column is NULL). SS search needs SsID as its systemeid.
+func (s *Store) GetPlatformSourceIDs(ctx context.Context, platformID int64) (*PlatformSourceIDs, error) {
+	var igdb, ss, moby sql.NullInt64
+	err := s.DB.QueryRowContext(ctx,
+		`SELECT igdb_id, ss_id, moby_id FROM platforms WHERE id = ?`, platformID).
+		Scan(&igdb, &ss, &moby)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &PlatformSourceIDs{IgdbID: nullToPtr(igdb), SsID: nullToPtr(ss), MobyID: nullToPtr(moby)}, nil
+}
+
 // UpdatePlatformCustomName sets a platform's custom display name ("" clears it).
 func (s *Store) UpdatePlatformCustomName(ctx context.Context, id int64, customName string) (*Platform, error) {
 	var v any

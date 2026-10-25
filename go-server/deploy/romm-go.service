@@ -46,7 +46,9 @@ Environment=ROMM_CONFIG_FILE=/home/xiam/romm/config/config.yml
 # EnvironmentFile=/home/xiam/romm/go-server.env   (DB_PASSWD, ROMM_AUTH_SECRET_KEY)
 #   DB_PASSWD=...
 #   ROMM_AUTH_SECRET_KEY=...            # same key the container signs tokens with
-#   IGDB_CLIENT_ID=...  IGDB_CLIENT_SECRET=...     # metadata search
+#   IGDB_CLIENT_ID=...  IGDB_CLIENT_SECRET=...     # metadata search (IGDB)
+#   SCREENSCRAPER_DEV_ID=...  SCREENSCRAPER_DEV_PASSWORD=...   # ScreenScraper (primary)
+#   SCREENSCRAPER_USER=...    SCREENSCRAPER_PASSWORD=...       # user acct (raises quota)
 #   RETROACHIEVEMENTS_API_KEY=...                  # achievements
 #   ROMM_DOWNLOADER_CONFIG=/home/xiam/RommDownloader/config.yaml   # in-process downloads
 #   OIDC_ENABLED=true  OIDC_CLIENT_ID=...  OIDC_CLIENT_SECRET=...   # optional SSO

@@ -42,6 +42,14 @@ type Config struct {
 	IGDBClientSecret string
 	RAAPIKey         string // RETROACHIEVEMENTS_API_KEY
 
+	// ScreenScraper credentials (this install's primary metadata source).
+	// SSDevID/SSDevPassword are the software (dev) credentials RomM registers as
+	// "romm"; SSUser/SSPassword are the user account that raises the scrape quota.
+	SSDevID       string // SCREENSCRAPER_DEV_ID
+	SSDevPassword string // SCREENSCRAPER_DEV_PASSWORD
+	SSUser        string // SCREENSCRAPER_USER
+	SSPassword    string // SCREENSCRAPER_PASSWORD
+
 	// MergeService* point at the RommDownloader merge service for the
 	// virtual-download workflow. (The Python app keeps these in its Downloads
 	// config; the Go server reads them from the environment.)
@@ -99,6 +107,10 @@ func FromEnv() Config {
 		IGDBClientID:      os.Getenv("IGDB_CLIENT_ID"),
 		IGDBClientSecret:  os.Getenv("IGDB_CLIENT_SECRET"),
 		RAAPIKey:          os.Getenv("RETROACHIEVEMENTS_API_KEY"),
+		SSDevID:           os.Getenv("SCREENSCRAPER_DEV_ID"),
+		SSDevPassword:     os.Getenv("SCREENSCRAPER_DEV_PASSWORD"),
+		SSUser:            os.Getenv("SCREENSCRAPER_USER"),
+		SSPassword:        os.Getenv("SCREENSCRAPER_PASSWORD"),
 		MergeServiceURL:   os.Getenv("MERGE_SERVICE_URL"),
 		MergeServiceToken: os.Getenv("MERGE_SERVICE_TOKEN"),
 		WebRoot:           os.Getenv("ROMM_WEB_ROOT"),
