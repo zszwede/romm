@@ -99,3 +99,84 @@ func (s *Store) DeleteAsset(ctx context.Context, kind string, id int64) error {
 	_, err := s.DB.ExecContext(ctx, "DELETE FROM "+kind+" WHERE id = ?", id)
 	return err
 }
+
+// AssetUpdate carries editable save/state metadata; nil = unchanged.
+type AssetUpdate struct {
+	IsPublic   *bool
+	IsFavorite *bool
+	FileName   *string
+	Labels     *string // JSON array text
+}
+
+// UpdateAsset applies metadata edits to a save/state row.
+func (s *Store) UpdateAsset(ctx context.Context, kind string, id int64, up AssetUpdate) error {
+	if err := checkKind(kind); err != nil {
+		return err
+	}
+	var sets []string
+	var args []any
+	if up.IsPublic != nil {
+		sets, args = append(sets, "is_public = ?"), append(args, boolToInt(*up.IsPublic))
+	}
+	if up.IsFavorite != nil {
+		sets, args = append(sets, "is_favorite = ?"), append(args, boolToInt(*up.IsFavorite))
+	}
+	if up.FileName != nil {
+		sets, args = append(sets, "file_name = ?"), append(args, *up.FileName)
+	}
+	if up.Labels != nil {
+		sets, args = append(sets, "labels = ?"), append(args, *up.Labels)
+	}
+	if len(sets) == 0 {
+		return nil
+	}
+	sets = append(sets, "updated_at = NOW()")
+	args = append(args, id)
+	_, err := s.DB.ExecContext(ctx, "UPDATE "+kind+" SET "+joinComma(sets)+" WHERE id = ?", args...)
+	return err
+}
+
+// GetAssetByID returns one save/state row.
+func (s *Store) GetAssetByID(ctx context.Context, kind string, id int64) (*Asset, error) {
+	if err := checkKind(kind); err != nil {
+		return nil, err
+	}
+	var a Asset
+	err := s.DB.QueryRowContext(ctx,
+		"SELECT id, rom_id, user_id, file_name, COALESCE(file_path,''), COALESCE(file_size_bytes,0), COALESCE(emulator,'') "+
+			"FROM "+kind+" WHERE id = ?", id).
+		Scan(&a.ID, &a.RomID, &a.UserID, &a.FileName, &a.FilePath, &a.SizeBytes, &a.Emulator)
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+// BulkDeleteAssets removes save/state rows by id and returns the ids deleted.
+func (s *Store) BulkDeleteAssets(ctx context.Context, kind string, ids []int64) ([]int64, error) {
+	if err := checkKind(kind); err != nil {
+		return nil, err
+	}
+	deleted := []int64{}
+	for _, id := range ids {
+		res, err := s.DB.ExecContext(ctx, "DELETE FROM "+kind+" WHERE id = ?", id)
+		if err != nil {
+			return nil, err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			deleted = append(deleted, id)
+		}
+	}
+	return deleted, nil
+}
+
+func joinComma(ss []string) string {
+	out := ""
+	for i, s := range ss {
+		if i > 0 {
+			out += ", "
+		}
+		out += s
+	}
+	return out
+}

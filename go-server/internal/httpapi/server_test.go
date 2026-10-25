@@ -251,6 +251,13 @@ func (f *fakeStore) DeleteAsset(context.Context, string, int64) error {
 	}
 	return nil
 }
+func (f *fakeStore) UpdateAsset(context.Context, string, int64, store.AssetUpdate) error { return nil }
+func (f *fakeStore) GetAssetByID(_ context.Context, _ string, id int64) (*store.Asset, error) {
+	return &store.Asset{ID: id, RomID: 7, FileName: "s.srm"}, nil
+}
+func (f *fakeStore) BulkDeleteAssets(_ context.Context, _ string, ids []int64) ([]int64, error) {
+	return ids, nil
+}
 func (f *fakeStore) Upsert(_ context.Context, r scan.Record) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

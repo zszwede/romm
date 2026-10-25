@@ -68,6 +68,9 @@ type DataStore interface {
 	InsertAsset(ctx context.Context, kind string, a store.Asset) (int64, error)
 	AssetLocation(ctx context.Context, kind string, id int64) (filePath, fileName string, found bool, err error)
 	DeleteAsset(ctx context.Context, kind string, id int64) error
+	UpdateAsset(ctx context.Context, kind string, id int64, up store.AssetUpdate) error
+	GetAssetByID(ctx context.Context, kind string, id int64) (*store.Asset, error)
+	BulkDeleteAssets(ctx context.Context, kind string, ids []int64) ([]int64, error)
 	ListPlaylists(ctx context.Context, userID int64) ([]store.Playlist, error)
 	CreatePlaylist(ctx context.Context, userID int64, name, description string, isPublic bool) (int64, error)
 	DeletePlaylist(ctx context.Context, userID, id int64) (bool, error)
@@ -308,7 +311,15 @@ func (s *Server) routes() {
 		s.mux.HandleFunc("POST /api/"+k, func(w http.ResponseWriter, r *http.Request) { s.uploadAsset(w, r, k) })
 		s.mux.HandleFunc("GET /api/"+k+"/{id}/content", func(w http.ResponseWriter, r *http.Request) { s.assetContent(w, r, k) })
 		s.mux.HandleFunc("DELETE /api/"+k+"/{id}", func(w http.ResponseWriter, r *http.Request) { s.deleteAsset(w, r, k) })
+		s.mux.HandleFunc("POST /api/"+k+"/delete", func(w http.ResponseWriter, r *http.Request) { s.bulkDeleteAssets(w, r, k) })
+		for _, f := range []string{"visibility", "favorite", "file-name", "labels"} {
+			field := f
+			s.mux.HandleFunc("PUT /api/"+k+"/{id}/"+field, func(w http.ResponseWriter, r *http.Request) { s.editAsset(w, r, k, field) })
+		}
 	}
+	// Presence heartbeat (no persistence needed in a single-user setup).
+	s.mux.HandleFunc("POST /api/activity/heartbeat", s.activityHeartbeat)
+	s.mux.HandleFunc("DELETE /api/activity/heartbeat", s.activityHeartbeat)
 
 	// Static resources (covers, screenshots, manuals) served from disk.
 	if s.resourcesRoot != "" {
