@@ -164,8 +164,51 @@ func (s *Store) GetRomFull(ctx context.Context, id int64) (*RomFull, error) {
 	return scanRomFull(s.DB.QueryRowContext(ctx, `SELECT `+romFullCols+` WHERE r.id = ?`, id))
 }
 
-// ListRomsFull returns full roms with ordering/paging. platformID<=0 means all.
-func (s *Store) ListRomsFull(ctx context.Context, platformID int64, orderBy, orderDir string, limit, offset int) ([]RomFull, error) {
+// RomFilter selects which roms the gallery queries return.
+type RomFilter struct {
+	PlatformIDs    []int64
+	ExcludeVirtual bool // hide is_virtual=1 (the gallery's virtual=false)
+	Search         string
+}
+
+// where builds the shared WHERE clause + args for list/count/index.
+func (f RomFilter) where() (string, []any) {
+	var conds []string
+	var args []any
+	if len(f.PlatformIDs) > 0 {
+		ph := ""
+		for i, id := range f.PlatformIDs {
+			if i > 0 {
+				ph += ","
+			}
+			ph += "?"
+			args = append(args, id)
+		}
+		conds = append(conds, "r.platform_id IN ("+ph+")")
+	}
+	if f.ExcludeVirtual {
+		conds = append(conds, "COALESCE(r.is_virtual,0) = 0")
+	}
+	if f.Search != "" {
+		conds = append(conds, "(r.name LIKE ? OR r.fs_name LIKE ?)")
+		like := "%" + f.Search + "%"
+		args = append(args, like, like)
+	}
+	if len(conds) == 0 {
+		return "", args
+	}
+	w := " WHERE "
+	for i, c := range conds {
+		if i > 0 {
+			w += " AND "
+		}
+		w += c
+	}
+	return w, args
+}
+
+// ListRomsFull returns full roms matching the filter, ordered and paged.
+func (s *Store) ListRomsFull(ctx context.Context, f RomFilter, orderBy, orderDir string, limit, offset int) ([]RomFull, error) {
 	order := romOrderColumn(orderBy)
 	dir := "ASC"
 	if orderDir == "desc" {
@@ -174,13 +217,9 @@ func (s *Store) ListRomsFull(ctx context.Context, platformID int64, orderBy, ord
 	if limit <= 0 || limit > 250 {
 		limit = 72
 	}
-	q := `SELECT ` + romFullCols
-	args := []any{}
-	if platformID > 0 {
-		q += ` WHERE r.platform_id = ?`
-		args = append(args, platformID)
-	}
-	q += ` ORDER BY ` + order + ` ` + dir + `, r.id ` + dir + ` LIMIT ? OFFSET ?`
+	where, args := f.where()
+	q := `SELECT ` + romFullCols + where +
+		` ORDER BY ` + order + ` ` + dir + `, r.id ` + dir + ` LIMIT ? OFFSET ?`
 	args = append(args, limit, offset)
 	rows, err := s.DB.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -198,16 +237,64 @@ func (s *Store) ListRomsFull(ctx context.Context, platformID int64, orderBy, ord
 	return out, rows.Err()
 }
 
-// CountRoms counts roms for a platform (or all when platformID<=0).
-func (s *Store) CountRoms(ctx context.Context, platformID int64) (int64, error) {
+// CountRoms counts roms matching the filter.
+func (s *Store) CountRoms(ctx context.Context, f RomFilter) (int64, error) {
+	where, args := f.where()
 	var n int64
-	var err error
-	if platformID > 0 {
-		err = s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM roms WHERE platform_id = ?`, platformID).Scan(&n)
-	} else {
-		err = s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM roms`).Scan(&n)
-	}
+	err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM roms r`+where, args...).Scan(&n)
 	return n, err
+}
+
+// RomIDIndex returns the ordered rom ids and first-letter positions for the
+// gallery's virtual scroll (rom_id_index) and alpha jump bar (char_index).
+func (s *Store) RomIDIndex(ctx context.Context, f RomFilter, orderBy, orderDir string) (ids []int64, charIndex map[string]int, err error) {
+	order := romOrderColumn(orderBy)
+	dir := "ASC"
+	if orderDir == "desc" {
+		dir = "DESC"
+	}
+	where, args := f.where()
+	// Select id + the sort key so char positions match the list order exactly.
+	q := `SELECT r.id, COALESCE(r.name_sort_key, r.name, r.fs_name) ` +
+		`FROM roms r` + where + ` ORDER BY ` + order + ` ` + dir + `, r.id ` + dir
+	rows, err := s.DB.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	ids = []int64{}
+	charIndex = map[string]int{}
+	pos := 0
+	for rows.Next() {
+		var id int64
+		var sortKey sql.NullString
+		if err := rows.Scan(&id, &sortKey); err != nil {
+			return nil, nil, err
+		}
+		ids = append(ids, id)
+		letter := firstLetterBucket(sortKey.String)
+		if _, seen := charIndex[letter]; !seen {
+			charIndex[letter] = pos
+		}
+		pos++
+	}
+	return ids, charIndex, rows.Err()
+}
+
+// firstLetterBucket maps a sort key to its alpha-strip bucket: A-Z, or "#" for
+// anything starting with a digit or symbol.
+func firstLetterBucket(s string) string {
+	if s == "" {
+		return "#"
+	}
+	c := s[0]
+	if c >= 'a' && c <= 'z' {
+		c -= 32
+	}
+	if c >= 'A' && c <= 'Z' {
+		return string(c)
+	}
+	return "#"
 }
 
 // romOrderColumn whitelists sortable columns to avoid injection.

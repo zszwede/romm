@@ -81,8 +81,9 @@ type DataStore interface {
 	GetStats(ctx context.Context) (store.Stats, error)
 	RandomRomID(ctx context.Context) (int64, error)
 	GetRomFull(ctx context.Context, id int64) (*store.RomFull, error)
-	ListRomsFull(ctx context.Context, platformID int64, orderBy, orderDir string, limit, offset int) ([]store.RomFull, error)
-	CountRoms(ctx context.Context, platformID int64) (int64, error)
+	ListRomsFull(ctx context.Context, f store.RomFilter, orderBy, orderDir string, limit, offset int) ([]store.RomFull, error)
+	CountRoms(ctx context.Context, f store.RomFilter) (int64, error)
+	RomIDIndex(ctx context.Context, f store.RomFilter, orderBy, orderDir string) ([]int64, map[string]int, error)
 	GetRomUser(ctx context.Context, userID, romID int64) (*store.RomUser, error)
 }
 
@@ -314,14 +315,24 @@ func (s *Server) listRoms(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
 	q := r.URL.Query()
-	platformID := int64(atoiDefault(q.Get("platform_id"), 0))
+	filter := store.RomFilter{
+		PlatformIDs:    parseIDList(q.Get("platform_ids")),
+		ExcludeVirtual: q.Get("virtual") == "false",
+		Search:         q.Get("search_term"),
+	}
+	// Back-compat singular param.
+	if pid := int64(atoiDefault(q.Get("platform_id"), 0)); pid > 0 {
+		filter.PlatformIDs = append(filter.PlatformIDs, pid)
+	}
+	orderBy, orderDir := q.Get("order_by"), q.Get("order_dir")
 	limit := atoiDefault(q.Get("limit"), 72)
 	offset := atoiDefault(q.Get("offset"), 0)
-	roms, err := s.st.ListRomsFull(ctx, platformID, q.Get("order_by"), q.Get("order_dir"), limit, offset)
+	roms, err := s.st.ListRomsFull(ctx, filter, orderBy, orderDir, limit, offset)
 	if err != nil {
+		log.Printf("listRoms: %v", err)
 		writeErr(w, http.StatusInternalServerError, "query failed")
 		return
 	}
@@ -331,13 +342,38 @@ func (s *Server) listRoms(w http.ResponseWriter, r *http.Request) {
 		items = append(items, romJSON(&roms[i], nil, uid, false))
 	}
 	resp := map[string]any{"items": items, "limit": limit, "offset": offset}
-	// The gallery asks for a total only when it needs one.
-	if q.Get("with_total") == "true" {
-		if total, err := s.st.CountRoms(ctx, platformID); err == nil {
+
+	// Sidecars default to ON (the frontend omits the flag unless disabling it).
+	if q.Get("with_total") != "false" {
+		if total, err := s.st.CountRoms(ctx, filter); err == nil {
 			resp["total"] = total
 		}
 	}
+	if q.Get("with_rom_id_index") != "false" || q.Get("with_char_index") != "false" {
+		if ids, charIdx, err := s.st.RomIDIndex(ctx, filter, orderBy, orderDir); err == nil {
+			if q.Get("with_rom_id_index") != "false" {
+				resp["rom_id_index"] = ids
+			}
+			if q.Get("with_char_index") != "false" {
+				resp["char_index"] = charIdx
+			}
+		}
+	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// parseIDList parses a comma-separated id list ("4,7,9") into []int64.
+func parseIDList(s string) []int64 {
+	if s == "" {
+		return nil
+	}
+	var out []int64
+	for _, part := range strings.Split(s, ",") {
+		if n := int64(atoiDefault(strings.TrimSpace(part), 0)); n > 0 {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // getRomContent streams a rom's file (range-capable, for downloads and the

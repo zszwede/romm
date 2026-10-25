@@ -156,10 +156,13 @@ func (f *fakeStore) GetRomFull(_ context.Context, id int64) (*store.RomFull, err
 	}
 	return nil, nil
 }
-func (f *fakeStore) ListRomsFull(context.Context, int64, string, string, int, int) ([]store.RomFull, error) {
+func (f *fakeStore) ListRomsFull(context.Context, store.RomFilter, string, string, int, int) ([]store.RomFull, error) {
 	return []store.RomFull{{ID: 7, Name: toNullStr("Zelda"), PlatformID: 1, PlatformSlug: "switch", PlatformName: "Switch", FsName: "Zelda.nsp", FsPath: "roms/switch"}}, nil
 }
-func (f *fakeStore) CountRoms(context.Context, int64) (int64, error) { return 1, nil }
+func (f *fakeStore) CountRoms(context.Context, store.RomFilter) (int64, error) { return 1, nil }
+func (f *fakeStore) RomIDIndex(context.Context, store.RomFilter, string, string) ([]int64, map[string]int, error) {
+	return []int64{7}, map[string]int{"Z": 0}, nil
+}
 func (f *fakeStore) GetRomUser(context.Context, int64, int64) (*store.RomUser, error) {
 	return nil, nil
 }
