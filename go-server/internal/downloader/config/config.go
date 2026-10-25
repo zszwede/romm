@@ -155,6 +155,12 @@ type Overrides struct {
 	SwitchKeys string // absolute path to prod.keys
 	WorkDir    string // per-job scratch dir (if the config's is container-only)
 	StateDir   string // job state dir
+	// DisableCallback clears the HTTP callback URL (global + per-system). The
+	// in-process downloader applies finished jobs to the DB via its poller, so
+	// the config's callback to the container (http://romm:8080/...) is both
+	// unreachable on the host and redundant — clearing it stops failed-callback
+	// retry noise.
+	DisableCallback bool
 }
 
 // ApplyOverrides rewrites the Switch steps (and optional work/state dirs) to the
@@ -178,7 +184,13 @@ func (c *Config) ApplyOverrides(ov Overrides) {
 				}
 			}
 		}
+		if ov.DisableCallback {
+			sys.Callback = nil
+		}
 		c.Systems[name] = sys
+	}
+	if ov.DisableCallback {
+		c.Callback.URL = ""
 	}
 }
 
