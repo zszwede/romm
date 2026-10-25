@@ -80,6 +80,10 @@ type DataStore interface {
 	TouchLogin(ctx context.Context, id int64) error
 	GetStats(ctx context.Context) (store.Stats, error)
 	RandomRomID(ctx context.Context) (int64, error)
+	GetRomFull(ctx context.Context, id int64) (*store.RomFull, error)
+	ListRomsFull(ctx context.Context, platformID int64, orderBy, orderDir string, limit, offset int) ([]store.RomFull, error)
+	CountRoms(ctx context.Context, platformID int64) (int64, error)
+	GetRomUser(ctx context.Context, userID, romID int64) (*store.RomUser, error)
 }
 
 // Deps are the server's collaborators. Passed as a struct so new ones can be
@@ -99,6 +103,9 @@ type Deps struct {
 	WebRoot string
 	// AssetsRoot: directory for uploaded saves/states (ROMM_BASE_PATH/assets).
 	AssetsRoot string
+	// ResourcesRoot: directory for cover/screenshot/manual resources
+	// (ROMM_BASE_PATH/resources), served at /assets/romm/resources/.
+	ResourcesRoot string
 	// OIDC, when non-nil, enables the OpenID Connect login endpoints. OIDCUsers
 	// is the user store it provisions against (the *store.Store satisfies it).
 	OIDC      *oidc.Provider
@@ -114,7 +121,8 @@ type Server struct {
 	meta        metadata.Provider
 	virt        VirtualService
 	ach         AchievementService
-	assetsRoot  string
+	assetsRoot    string
+	resourcesRoot string
 	static      fs.FS
 	flows       *deviceauth.Store
 	oidc        *oidc.Provider
@@ -131,8 +139,9 @@ func New(d Deps) *Server {
 		scanRoot:   d.ScanRoot,
 		meta:       d.Metadata,
 		virt:       d.Virtual,
-		ach:        d.Achievements,
-		assetsRoot: d.AssetsRoot,
+		ach:           d.Achievements,
+		assetsRoot:    d.AssetsRoot,
+		resourcesRoot: d.ResourcesRoot,
 		flows:      deviceauth.NewStore(),
 		oidc:       d.OIDC,
 		oidcUsers:  d.OIDCUsers,
@@ -236,6 +245,12 @@ func (s *Server) routes() {
 		s.mux.HandleFunc("DELETE /api/"+k+"/{id}", func(w http.ResponseWriter, r *http.Request) { s.deleteAsset(w, r, k) })
 	}
 
+	// Static resources (covers, screenshots, manuals) served from disk.
+	if s.resourcesRoot != "" {
+		fsrv := http.StripPrefix("/assets/romm/resources/", http.FileServer(http.Dir(s.resourcesRoot)))
+		s.mux.Handle("GET /assets/romm/resources/", fsrv)
+	}
+
 	s.mux.Handle("GET /", s.spaHandler())
 }
 
@@ -294,16 +309,35 @@ func (s *Server) listPlatforms(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listRoms(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	claims, ok := s.authUser(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
-	platformID := int64(atoiDefault(r.URL.Query().Get("platform_id"), 0))
-	limit := atoiDefault(r.URL.Query().Get("limit"), 100)
-	roms, err := s.st.ListRoms(ctx, platformID, limit)
+	q := r.URL.Query()
+	platformID := int64(atoiDefault(q.Get("platform_id"), 0))
+	limit := atoiDefault(q.Get("limit"), 72)
+	offset := atoiDefault(q.Get("offset"), 0)
+	roms, err := s.st.ListRomsFull(ctx, platformID, q.Get("order_by"), q.Get("order_dir"), limit, offset)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "query failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": roms, "limit": limit})
+	uid, _ := s.st.UserIDByUsername(ctx, claims.Username)
+	items := make([]map[string]any, 0, len(roms))
+	for i := range roms {
+		items = append(items, romJSON(&roms[i], nil, uid, false))
+	}
+	resp := map[string]any{"items": items, "limit": limit, "offset": offset}
+	// The gallery asks for a total only when it needs one.
+	if q.Get("with_total") == "true" {
+		if total, err := s.st.CountRoms(ctx, platformID); err == nil {
+			resp["total"] = total
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // getRomContent streams a rom's file (range-capable, for downloads and the
@@ -408,6 +442,11 @@ func (s *Server) listCollections(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getRom(w http.ResponseWriter, r *http.Request) {
+	claims, ok := s.authUser(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
 	id := int64(atoiDefault(r.PathValue("id"), 0))
 	if id <= 0 {
 		writeErr(w, http.StatusBadRequest, "bad id")
@@ -415,8 +454,9 @@ func (s *Server) getRom(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	rom, err := s.st.GetRom(ctx, id)
+	rom, err := s.st.GetRomFull(ctx, id)
 	if err != nil {
+		log.Printf("getRomFull(%d): %v", id, err)
 		writeErr(w, http.StatusInternalServerError, "query failed")
 		return
 	}
@@ -424,7 +464,12 @@ func (s *Server) getRom(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "rom not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, rom)
+	uid, _ := s.st.UserIDByUsername(ctx, claims.Username)
+	var ru *store.RomUser
+	if uid > 0 {
+		ru, _ = s.st.GetRomUser(ctx, uid, id)
+	}
+	writeJSON(w, http.StatusOK, romJSON(rom, ru, uid, true))
 }
 
 func (s *Server) setRomProps(w http.ResponseWriter, r *http.Request) {

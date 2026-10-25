@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"mime/multipart"
 	"net/http"
@@ -149,6 +150,21 @@ func (f *fakeStore) GetStats(context.Context) (store.Stats, error) {
 	return store.Stats{Platforms: 2, Roms: 3}, nil
 }
 func (f *fakeStore) RandomRomID(context.Context) (int64, error) { return 7, nil }
+func (f *fakeStore) GetRomFull(_ context.Context, id int64) (*store.RomFull, error) {
+	if id == 7 {
+		return &store.RomFull{ID: 7, Name: toNullStr("Zelda"), PlatformID: 1, PlatformSlug: "switch", PlatformName: "Switch", FsName: "Zelda.nsp", FsPath: "roms/switch"}, nil
+	}
+	return nil, nil
+}
+func (f *fakeStore) ListRomsFull(context.Context, int64, string, string, int, int) ([]store.RomFull, error) {
+	return []store.RomFull{{ID: 7, Name: toNullStr("Zelda"), PlatformID: 1, PlatformSlug: "switch", PlatformName: "Switch", FsName: "Zelda.nsp", FsPath: "roms/switch"}}, nil
+}
+func (f *fakeStore) CountRoms(context.Context, int64) (int64, error) { return 1, nil }
+func (f *fakeStore) GetRomUser(context.Context, int64, int64) (*store.RomUser, error) {
+	return nil, nil
+}
+
+func toNullStr(s string) sql.NullString { return sql.NullString{String: s, Valid: true} }
 func (f *fakeStore) UserIDByUsername(context.Context, string) (int64, error) { return f.userID, nil }
 func (f *fakeStore) SetRomUserProps(_ context.Context, uid, romID int64, p store.RomUserProps) (int, error) {
 	f.mu.Lock()
@@ -279,11 +295,15 @@ func TestCollections(t *testing.T) {
 
 func TestGetRom(t *testing.T) {
 	s, _ := newTestServer(t)
-	if w := do(s, "GET", "/api/roms/7", "", ""); w.Code != 200 || !strings.Contains(w.Body.String(), "Zelda") {
+	tok := token(t, testSecret, "access", "romm:oauth")
+	if w := do(s, "GET", "/api/roms/7", tok, ""); w.Code != 200 || !strings.Contains(w.Body.String(), "Zelda") {
 		t.Errorf("found: code %d body %s", w.Code, w.Body.String())
 	}
-	if w := do(s, "GET", "/api/roms/999", "", ""); w.Code != 404 {
+	if w := do(s, "GET", "/api/roms/999", tok, ""); w.Code != 404 {
 		t.Errorf("missing: want 404 got %d", w.Code)
+	}
+	if w := do(s, "GET", "/api/roms/7", "", ""); w.Code != 401 {
+		t.Errorf("no auth: want 401 got %d", w.Code)
 	}
 }
 
