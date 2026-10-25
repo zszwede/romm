@@ -22,6 +22,9 @@ import (
 
 func main() {
 	cfg := config.FromEnv()
+	if cfg.DevUser != "" {
+		log.Printf("⚠️  AUTH DISABLED (ROMM_DEV_NO_AUTH): every request runs as %q — development only, do NOT expose to the internet", cfg.DevUser)
+	}
 
 	st, err := store.Open(cfg.DBHost, cfg.DBPort, cfg.DBUser, cfg.DBPass, cfg.DBName)
 	if err != nil {
@@ -142,6 +145,7 @@ func main() {
 			OIDC:         oidcProvider,
 			OIDCUsers:    oidcUsers,
 			ConfigFile:   configFile,
+			DevUser:      cfg.DevUser,
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

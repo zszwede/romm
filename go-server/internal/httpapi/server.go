@@ -170,6 +170,10 @@ type Deps struct {
 	// ConfigFile is the parsed RomM config.yml, serving GET /api/config. When
 	// nil the endpoint reports the file as not mounted with empty defaults.
 	ConfigFile *config.ConfigData
+	// DevUser, when non-empty, DISABLES auth: every request is treated as this
+	// (admin) user. Development convenience only — never on an internet-facing
+	// instance. Set via ROMM_DEV_NO_AUTH.
+	DevUser string
 }
 
 type Server struct {
@@ -191,6 +195,7 @@ type Server struct {
 	oidc        *oidc.Provider
 	oidcUsers   oidc.UserStore
 	configFile  *config.ConfigData
+	devUser     string
 	netplay     *netplay.Hub
 	sockets     *socketio.Hub
 	uploads     *uploadManager
@@ -215,6 +220,7 @@ func New(d Deps) *Server {
 		oidc:       d.OIDC,
 		oidcUsers:  d.OIDCUsers,
 		configFile: d.ConfigFile,
+		devUser:    d.DevUser,
 		mux:        http.NewServeMux(),
 	}
 	// Netplay signaling hub. The room store + relay logic live here; the
@@ -952,6 +958,12 @@ func (s *Server) virtualDispatch(w http.ResponseWriter, r *http.Request) {
 
 // authUser extracts and verifies the Bearer access token, if any.
 func (s *Server) authUser(r *http.Request) (*auth.Claims, bool) {
+	// DEV ONLY: ROMM_DEV_NO_AUTH makes every request an admin (no login needed),
+	// so frequent rebuilds during development don't bounce the browser to login.
+	// Never enable on an internet-facing instance.
+	if s.devUser != "" {
+		return &auth.Claims{Username: s.devUser, Scopes: auth.ScopesForRole("admin")}, true
+	}
 	// Bearer JWT (API clients), else the web-UI session cookie.
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 		if c, err := auth.Verify(strings.TrimPrefix(h, "Bearer "), s.secret); err == nil {

@@ -18,6 +18,15 @@ func defaultConfigFile(basePath string) string {
 	return filepath.Join(basePath, "config", "config.yml")
 }
 
+// devUserFromEnv returns the dev admin username when ROMM_DEV_NO_AUTH is truthy
+// (ROMM_DEV_USER or "xiam"), else "" (auth enforced as normal).
+func devUserFromEnv() string {
+	if !boolEnv("ROMM_DEV_NO_AUTH") {
+		return ""
+	}
+	return env("ROMM_DEV_USER", "xiam")
+}
+
 // defaultExternalBins is an "external-bins" folder beside the running executable
 // (where RomM's bundled tools like switch-tool live); falls back to "./external-bins".
 func defaultExternalBins() string {
@@ -112,6 +121,12 @@ type Config struct {
 	DownloaderWorkDir  string
 	DownloaderStateDir string
 
+	// DevUser, when non-empty, DISABLES authentication: every request is treated
+	// as this admin user. Set ROMM_DEV_NO_AUTH to a truthy value (then
+	// optionally ROMM_DEV_USER, default "xiam"). Development only — frequent
+	// rebuilds otherwise bounce the browser to the login page.
+	DevUser string
+
 	// OIDC config (OIDC_* env vars). Login endpoints activate when Enabled.
 	OIDC OIDCConfig
 }
@@ -153,6 +168,7 @@ func FromEnv() Config {
 		SSPassword:        os.Getenv("SCREENSCRAPER_PASSWORD"),
 		HasheousEnabled:   boolEnvDefault("HASHEOUS_API_ENABLED", true),
 		LibretroEnabled:   boolEnvDefault("LIBRETRO_API_ENABLED", true),
+		DevUser:           devUserFromEnv(),
 		MergeServiceURL:   os.Getenv("MERGE_SERVICE_URL"),
 		MergeServiceToken: os.Getenv("MERGE_SERVICE_TOKEN"),
 		WebRoot:           os.Getenv("ROMM_WEB_ROOT"),
