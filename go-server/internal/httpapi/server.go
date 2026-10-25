@@ -74,6 +74,12 @@ type DataStore interface {
 	AddTrack(ctx context.Context, playlistID, romFileID int64) (int64, error)
 	RemoveTrack(ctx context.Context, trackID int64) error
 	RegisterDeviceToken(ctx context.Context, in store.DeviceTokenInput) (string, error)
+	GetUserAuth(ctx context.Context, username string) (*store.UserRecord, error)
+	GetUserByID(ctx context.Context, id int64) (*store.UserRecord, error)
+	ListUsers(ctx context.Context) ([]store.UserRecord, error)
+	TouchLogin(ctx context.Context, id int64) error
+	GetStats(ctx context.Context) (store.Stats, error)
+	RandomRomID(ctx context.Context) (int64, error)
 }
 
 // Deps are the server's collaborators. Passed as a struct so new ones can be
@@ -164,7 +170,7 @@ func resolveStatic(webRoot string) fs.FS {
 func (s *Server) Handler() http.Handler { return logging(s.mux) }
 
 func (s *Server) routes() {
-	s.mux.HandleFunc("GET /api/heartbeat", s.heartbeat)
+	s.mux.HandleFunc("GET /api/heartbeat", s.heartbeatFull)
 	s.mux.HandleFunc("GET /api/platforms", s.listPlatforms)
 	s.mux.HandleFunc("GET /api/roms", s.listRoms)
 	s.mux.HandleFunc("GET /api/roms/{id}", s.getRom)
@@ -194,6 +200,24 @@ func (s *Server) routes() {
 
 	// Netplay: list joinable rooms for a ROM.
 	s.mux.HandleFunc("GET /api/netplay/list", s.netplayList)
+
+	// Session auth + identity.
+	s.mux.HandleFunc("POST /api/login", s.login)
+	s.mux.HandleFunc("POST /api/logout", s.logout)
+	s.mux.HandleFunc("GET /api/users/me", s.usersMe)
+	s.mux.HandleFunc("GET /api/users", s.listUsers)
+
+	// Frontend bootstrap.
+	s.mux.HandleFunc("GET /api/config", s.getConfig)
+	s.mux.HandleFunc("GET /api/permissions/me", s.getPermissions)
+	s.mux.HandleFunc("GET /api/stats", s.getStats)
+	s.mux.HandleFunc("GET /api/notifications", s.getNotifications)
+	s.mux.HandleFunc("GET /api/recommendations", s.getRecommendations)
+	s.mux.HandleFunc("GET /api/collections/smart", s.getSmartCollections)
+	s.mux.HandleFunc("GET /api/collections/virtual", s.getVirtualCollections)
+	s.mux.HandleFunc("GET /api/tasks/status", s.getTasksStatus)
+	s.mux.HandleFunc("GET /api/streaming/config", s.getStreamingConfig)
+	s.mux.HandleFunc("GET /api/roms/random", s.getRandomRom)
 
 	// Music playlists.
 	s.mux.HandleFunc("GET /api/music/playlists", s.listPlaylists)
@@ -262,7 +286,11 @@ func (s *Server) listPlatforms(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "query failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": platforms})
+	// The frontend expects a bare array (list[PlatformSchema]).
+	if platforms == nil {
+		platforms = []store.Platform{}
+	}
+	writeJSON(w, http.StatusOK, platforms)
 }
 
 func (s *Server) listRoms(w http.ResponseWriter, r *http.Request) {
@@ -372,7 +400,11 @@ func (s *Server) listCollections(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "query failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": cols})
+	// The frontend expects a bare array (list[CollectionSchema]).
+	if cols == nil {
+		cols = []store.Collection{}
+	}
+	writeJSON(w, http.StatusOK, cols)
 }
 
 func (s *Server) getRom(w http.ResponseWriter, r *http.Request) {
@@ -566,15 +598,13 @@ func (s *Server) virtualDispatch(w http.ResponseWriter, r *http.Request) {
 
 // authUser extracts and verifies the Bearer access token, if any.
 func (s *Server) authUser(r *http.Request) (*auth.Claims, bool) {
-	h := r.Header.Get("Authorization")
-	if !strings.HasPrefix(h, "Bearer ") {
-		return nil, false
+	// Bearer JWT (API clients), else the web-UI session cookie.
+	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+		if c, err := auth.Verify(strings.TrimPrefix(h, "Bearer "), s.secret); err == nil {
+			return c, true
+		}
 	}
-	c, err := auth.Verify(strings.TrimPrefix(h, "Bearer "), s.secret)
-	if err != nil {
-		return nil, false
-	}
-	return c, true
+	return s.sessionClaims(r)
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

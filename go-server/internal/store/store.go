@@ -107,25 +107,27 @@ func (s *Store) ListRoms(ctx context.Context, platformID int64, limit int) ([]Ro
 
 // Platform is the list projection with a rom count.
 type Platform struct {
-	ID       int64  `json:"id"`
-	Name     string `json:"name"`
-	Slug     string `json:"slug"`
-	FsSlug   string `json:"fs_slug"`
-	RomCount int    `json:"rom_count"`
+	ID          int64  `json:"id"`
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+	Slug        string `json:"slug"`
+	FsSlug      string `json:"fs_slug"`
+	RomCount    int    `json:"rom_count"`
 }
 
 // ListPlatforms returns every platform with how many roms it holds.
 func (s *Store) ListPlatforms(ctx context.Context) ([]Platform, error) {
 	rows, err := s.DB.QueryContext(ctx, `
 		SELECT p.id,
-		       COALESCE(NULLIF(p.custom_name,''), p.name, p.slug),
+		       COALESCE(NULLIF(p.name,''), p.slug),
+		       COALESCE(NULLIF(p.custom_name,''), NULLIF(p.name,''), p.slug),
 		       p.slug,
 		       COALESCE(p.fs_slug, ''),
 		       COUNT(r.id)
 		FROM platforms p
 		LEFT JOIN roms r ON r.platform_id = p.id
 		GROUP BY p.id, p.custom_name, p.name, p.slug, p.fs_slug
-		ORDER BY 2`)
+		ORDER BY 3`)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +135,7 @@ func (s *Store) ListPlatforms(ctx context.Context) ([]Platform, error) {
 	out := []Platform{}
 	for rows.Next() {
 		var p Platform
-		if err := rows.Scan(&p.ID, &p.Name, &p.Slug, &p.FsSlug, &p.RomCount); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.DisplayName, &p.Slug, &p.FsSlug, &p.RomCount); err != nil {
 			return nil, err
 		}
 		out = append(out, p)

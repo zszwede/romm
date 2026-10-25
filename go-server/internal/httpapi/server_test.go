@@ -72,6 +72,8 @@ type fakeStore struct {
 	regCalls  int
 	lastReg   store.DeviceTokenInput
 	regDevID  string
+
+	authUser *store.UserRecord
 }
 
 func (f *fakeStore) Counts(context.Context) (store.Counts, error) { return f.counts, nil }
@@ -124,6 +126,29 @@ func (f *fakeStore) RegisterDeviceToken(_ context.Context, in store.DeviceTokenI
 	}
 	return f.regDevID, nil
 }
+func (f *fakeStore) GetUserAuth(_ context.Context, username string) (*store.UserRecord, error) {
+	if f.authUser != nil && f.authUser.Username == username {
+		return f.authUser, nil
+	}
+	return nil, nil
+}
+func (f *fakeStore) GetUserByID(_ context.Context, id int64) (*store.UserRecord, error) {
+	if f.authUser != nil && f.authUser.ID == id {
+		return f.authUser, nil
+	}
+	return nil, nil
+}
+func (f *fakeStore) ListUsers(context.Context) ([]store.UserRecord, error) {
+	if f.authUser != nil {
+		return []store.UserRecord{*f.authUser}, nil
+	}
+	return []store.UserRecord{}, nil
+}
+func (f *fakeStore) TouchLogin(context.Context, int64) error { return nil }
+func (f *fakeStore) GetStats(context.Context) (store.Stats, error) {
+	return store.Stats{Platforms: 2, Roms: 3}, nil
+}
+func (f *fakeStore) RandomRomID(context.Context) (int64, error) { return 7, nil }
 func (f *fakeStore) UserIDByUsername(context.Context, string) (int64, error) { return f.userID, nil }
 func (f *fakeStore) SetRomUserProps(_ context.Context, uid, romID int64, p store.RomUserProps) (int, error) {
 	f.mu.Lock()
@@ -230,8 +255,9 @@ func TestHeartbeat(t *testing.T) {
 	}
 	var body map[string]any
 	json.Unmarshal(w.Body.Bytes(), &body)
-	if body["LIBRARY"].(map[string]any)["roms"].(float64) != 3 {
-		t.Errorf("roms count wrong: %v", body["LIBRARY"])
+	sys, ok := body["SYSTEM"].(map[string]any)
+	if !ok || sys["VERSION"] != Version {
+		t.Errorf("heartbeat SYSTEM wrong: %v", body["SYSTEM"])
 	}
 }
 
