@@ -140,7 +140,7 @@ func (s *Server) virtualMarkDownload(w http.ResponseWriter, r *http.Request) {
 	if s.configFile != nil {
 		hostOrder = s.configFile.Downloads.DefaultHostOrder
 	}
-	links := buildDownloadLinks(rom, hostOrder)
+	links, mirrors := buildDownloadLinks(rom, hostOrder)
 	if len(links) == 0 {
 		writeJSON(w, http.StatusConflict, map[string]any{"msg": "No downloadable URL", "status": "wanted"})
 		return
@@ -154,6 +154,12 @@ func (s *Server) virtualMarkDownload(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]any{
 			"msg": "All sources are unavailable", "status": "wanted"})
 		return
+	}
+	// Mirror/variant fallback: the links are alternative copies of one base
+	// game, so download just the first (the preferred-host, still-available one)
+	// rather than every copy.
+	if mirrors && len(links) > 1 {
+		links = links[:1]
 	}
 	job := virtual.Job{
 		System: rom.PlatformFsSlug, Name: rom.Name.String,
@@ -180,15 +186,21 @@ type downloadItem struct {
 }
 
 // buildDownloadLinks produces the ordered link set to dispatch for a rom: base
-// parts + updates + DLC from virtual_contents (or the source URLs as a single
-// base when none captured), de-duplicated and ordered base→update→DLC with the
-// preferred host first within each group. Mirrors select_download_items.
-func buildDownloadLinks(rom *store.RomFull, hostOrder []string) []virtual.Link {
+// parts + updates + DLC from virtual_contents, de-duplicated and ordered
+// base→update→DLC with the preferred host first within each group.
+//
+// mirrors is true when the rom has no virtual_contents and the source URLs are
+// used as a fallback: those URLs are ALTERNATIVE copies of one base game (host
+// mirrors and/or dump variants), not separate parts, so the caller must keep
+// only one — otherwise every copy is downloaded (e.g. a game offered on two
+// hosts × two variants would fetch ~4× the data).
+func buildDownloadLinks(rom *store.RomFull, hostOrder []string) (links []virtual.Link, mirrors bool) {
 	var items []downloadItem
 	if rom.VirtualContents.Valid && rom.VirtualContents.String != "" {
 		_ = json.Unmarshal([]byte(rom.VirtualContents.String), &items)
 	}
 	if len(items) == 0 {
+		mirrors = true
 		for _, u := range append([]string{rom.SourceURL.String}, rom.Mirrors...) {
 			if u != "" {
 				items = append(items, downloadItem{URL: u, Name: rom.Name.String, Category: "base", Host: hostOf(u)})
@@ -236,7 +248,7 @@ func buildDownloadLinks(rom *store.RomFull, hostOrder []string) []virtual.Link {
 		}
 		out = append(out, virtual.Link{URL: it.URL, Name: it.Name, Category: cat, Version: it.Version})
 	}
-	return out
+	return out, mirrors
 }
 
 func catRank(c string) int {
