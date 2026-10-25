@@ -450,7 +450,7 @@ func applyDownloaded(ctx context.Context, e execer, romID int64, dir, name strin
 	noExt := strings.TrimSuffix(name, filepath.Ext(name))
 	noTags := strings.Join(strings.Fields(storeTagRE.ReplaceAllString(noExt, " ")), " ")
 	fph := hash.FullPathHash(dir, name)
-	_, err := e.ExecContext(ctx, `
+	if _, err := e.ExecContext(ctx, `
 		UPDATE roms SET
 			is_virtual = 0,
 			missing_from_fs = 0,
@@ -459,7 +459,19 @@ func applyDownloaded(ctx context.Context, e execer, romID int64, dir, name strin
 			download_status = NULL,
 			updated_at = NOW()
 		WHERE id = ?`,
-		dir, name, noExt, noTags, ext, size, fph, romID)
+		dir, name, noExt, noTags, ext, size, fph, romID); err != nil {
+		return err
+	}
+	// Record the delivered file in rom_files so the Files tab and download show
+	// it. Replace any prior rows for the rom (a re-download supersedes them).
+	if _, err := e.ExecContext(ctx, `DELETE FROM rom_files WHERE rom_id = ?`, romID); err != nil {
+		return err
+	}
+	_, err := e.ExecContext(ctx, `
+		INSERT INTO rom_files
+			(rom_id, file_name, file_path, file_size_bytes, missing_from_fs, created_at, updated_at)
+		VALUES (?, ?, ?, ?, 0, NOW(), NOW())`,
+		romID, name, dir, size)
 	return err
 }
 
@@ -569,6 +581,26 @@ func ptrArg(p *int64) any {
 		return nil
 	}
 	return *p
+}
+
+// RomMirrorURLs returns the extra download URLs captured for a virtual rom
+// (the virtual_rom_mirrors table), ordered by id. Empty when the rom has none.
+func (s *Store) RomMirrorURLs(ctx context.Context, romID int64) ([]string, error) {
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT url FROM virtual_rom_mirrors WHERE rom_id = ? ORDER BY id`, romID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var u string
+		if err := rows.Scan(&u); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
 }
 
 // PlatformSourceIDs holds a platform's provider-specific system ids, used to

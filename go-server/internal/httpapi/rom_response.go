@@ -3,6 +3,7 @@ package httpapi
 import (
 	"database/sql"
 	"encoding/json"
+	"regexp"
 	"strings"
 	"time"
 
@@ -27,6 +28,20 @@ func sStr(s sql.NullString) any {
 		return s.String
 	}
 	return nil
+}
+
+// jsonRawOrNil parses a JSON text column (object or array) and returns it, or
+// nil when the column is NULL/empty — matching the Python schema's `None`
+// default for optional JSON like virtual_contents.
+func jsonRawOrNil(raw sql.NullString) any {
+	if !raw.Valid || strings.TrimSpace(raw.String) == "" {
+		return nil
+	}
+	var out any
+	if err := json.Unmarshal([]byte(raw.String), &out); err != nil {
+		return nil
+	}
+	return out
 }
 func sInt(n sql.NullInt64) any {
 	if n.Valid {
@@ -101,8 +116,18 @@ func platformDisplayName(r *store.RomFull) string {
 	return r.PlatformName
 }
 
-// romJSON builds the full RomSchema. detail adds the DetailedRomSchema fields.
-func romJSON(r *store.RomFull, ru *store.RomUser, userID int64, detail bool) map[string]any {
+// romExtras carries the per-rom detail data loaded by the detail handler
+// (files, siblings, provider metadata). Nil for the gallery list, which does
+// not need them.
+type romExtras struct {
+	Files    []store.RomFile
+	Siblings []store.SiblingRom
+	Meta     *store.RomMetadata
+}
+
+// romJSON builds the full RomSchema. detail adds the DetailedRomSchema fields;
+// extras (when non-nil) fills files, sibling_roms and the provider metadata.
+func romJSON(r *store.RomFull, ru *store.RomUser, userID int64, detail bool, extras *romExtras) map[string]any {
 	metaID := r.IGDBID.Valid || r.SSID.Valid || r.MobyID.Valid || r.RAID.Valid ||
 		r.LaunchboxID.Valid || r.SGDBID.Valid
 	m := map[string]any{
@@ -199,12 +224,37 @@ func romJSON(r *store.RomFull, ru *store.RomUser, userID int64, detail bool) map
 
 		"rom_user": romUserJSON(ru, userID, r.ID),
 
-		// sibling/file collections — populated once those endpoints land.
-		"sibling_roms":       []any{},
+		"sibling_roms":       siblingsJSON(extras),
 		"user_notes":         []any{},
-		"files":              []any{},
-		"merged_screenshots": []any{},
+		"files":              filesJSON(r, extras),
+		"merged_screenshots": mergedScreenshots(extras),
 		"merged_ra_metadata": nil,
+	}
+
+	// File-shape flags derive from the rom's files (defaults assume a single
+	// top-level file when no files are loaded, matching a freshly-scanned rom).
+	if extras != nil {
+		topLevel, multiFile := fileShape(r, extras.Files)
+		m["has_multiple_files"] = topLevel > 1
+		m["has_simple_single_file"] = !multiFile && topLevel == 1
+		m["has_nested_single_file"] = multiFile && topLevel == 1
+		// Provider metadata blobs (Metadata + Media tabs).
+		if md := extras.Meta; md != nil {
+			m["igdb_metadata"] = jsonRawOrNil(md.IGDB)
+			m["moby_metadata"] = jsonRawOrNil(md.Moby)
+			m["ss_metadata"] = jsonRawOrNil(md.SS)
+			m["launchbox_metadata"] = jsonRawOrNil(md.Launchbox)
+			m["hasheous_metadata"] = jsonRawOrNil(md.Hasheous)
+			m["flashpoint_metadata"] = jsonRawOrNil(md.Flashpoint)
+			m["hltb_metadata"] = jsonRawOrNil(md.HLTB)
+			m["demozoo_metadata"] = jsonRawOrNil(md.Demozoo)
+			m["pouet_metadata"] = jsonRawOrNil(md.Pouet)
+			m["csdb_metadata"] = jsonRawOrNil(md.CSDB)
+			m["steam_metadata"] = jsonRawOrNil(md.Steam)
+			m["gamelist_metadata"] = jsonRawOrNil(md.Gamelist)
+			m["manual_metadata"] = jsonRawOrNil(md.Manual)
+			m["merged_ra_metadata"] = jsonRawOrNil(md.RA)
+		}
 	}
 
 	if detail {
@@ -217,10 +267,142 @@ func romJSON(r *store.RomFull, ru *store.RomUser, userID int64, detail bool) map
 		m["user_collections"] = []any{}
 		m["all_user_notes"] = []any{}
 		m["download_formats"] = []any{}
-		m["source_urls"] = []any{}
-		m["virtual_contents"] = nil
+		// source_urls: every place a virtual rom can be downloaded — its primary
+		// URL plus any captured mirrors, de-duplicated in order. The download
+		// dialog reads this; an empty list shows "no download details".
+		urls := []string{}
+		seen := map[string]bool{}
+		for _, u := range append([]string{r.SourceURL.String}, r.Mirrors...) {
+			if u != "" && !seen[u] {
+				seen[u] = true
+				urls = append(urls, u)
+			}
+		}
+		m["source_urls"] = urls
+		// virtual_contents: the captured base/update/DLC link set (Contents card).
+		m["virtual_contents"] = jsonRawOrNil(r.VirtualContents)
 	} else {
 		m["screenshot_path"] = nil
 	}
 	return m
+}
+
+const frontendResourcesPath = "/assets/romm/resources"
+
+// filesJSON builds the RomFileSchema array from the loaded rom_files.
+func filesJSON(r *store.RomFull, extras *romExtras) []map[string]any {
+	out := []map[string]any{}
+	if extras == nil {
+		return out
+	}
+	for _, f := range extras.Files {
+		full := f.FileName
+		if f.FilePath != "" {
+			full = f.FilePath + "/" + f.FileName
+		}
+		out = append(out, map[string]any{
+			"id":              f.ID,
+			"rom_id":          f.RomID,
+			"file_name":       f.FileName,
+			"file_path":       f.FilePath,
+			"file_size_bytes": f.FileSizeBytes,
+			"full_path":       full,
+			"is_top_level":    isTopLevel(r, f),
+			"last_modified":   nfloat(f.LastModified),
+			"crc_hash":        sStr(f.CRCHash),
+			"md5_hash":        sStr(f.MD5Hash),
+			"sha1_hash":       sStr(f.SHA1Hash),
+			"ra_hash":         sStr(f.RAHash),
+			"chd_sha1_hash":   sStr(f.CHDSHA1Hash),
+			"archive_members": jsonRawOrNil(f.ArchiveMembers),
+			"category":        sStr(f.Category),
+			"created_at":      f.CreatedAt,
+			"updated_at":      f.UpdatedAt,
+		})
+	}
+	return out
+}
+
+// isTopLevel reports whether a file is the rom's own file or sits directly in
+// the rom's folder (mirrors RomFile.is_top_level).
+func isTopLevel(r *store.RomFull, f store.RomFile) bool {
+	romFull := r.FsPath + "/" + r.FsName
+	full := f.FileName
+	if f.FilePath != "" {
+		full = f.FilePath + "/" + f.FileName
+	}
+	return full == romFull || f.FilePath == romFull || f.FilePath == r.FsPath
+}
+
+// fileShape returns (top-level file count, whether any file is nested) for the
+// has_* flags, matching Rom.top_level_file_count / Rom.multi_file.
+func fileShape(r *store.RomFull, files []store.RomFile) (topLevel int, multiFile bool) {
+	for _, f := range files {
+		if f.FilePath != "" && f.FilePath != r.FsPath {
+			multiFile = true
+		}
+		if isTopLevel(r, f) {
+			topLevel++
+		}
+	}
+	return
+}
+
+// siblingsJSON builds the SiblingRomSchema array.
+func siblingsJSON(extras *romExtras) []map[string]any {
+	out := []map[string]any{}
+	if extras == nil {
+		return out
+	}
+	for _, s := range extras.Siblings {
+		name := ""
+		if s.Name.Valid {
+			name = s.Name.String
+		}
+		out = append(out, map[string]any{
+			"id":              s.ID,
+			"name":            sStr(s.Name),
+			"fs_name_no_tags": s.FsNameNoTags,
+			"fs_name_no_ext":  s.FsNameNoExt,
+			"is_main_sibling": s.IsMainSibling,
+			"sort_comparator": sortComparator(name, s.FsNameNoTags),
+		})
+	}
+	return out
+}
+
+var sortCompareRE = regexp.MustCompile(`[^a-z0-9]+`)
+
+func sortComparator(name, fallback string) string {
+	s := name
+	if s == "" {
+		s = fallback
+	}
+	return sortCompareRE.ReplaceAllString(strings.ToLower(strings.TrimSpace(s)), "")
+}
+
+// mergedScreenshots turns the stored path_screenshots into resource URLs the
+// Media tab loads (mirrors Rom.merged_screenshots).
+func mergedScreenshots(extras *romExtras) []string {
+	out := []string{}
+	if extras == nil || extras.Meta == nil || !extras.Meta.PathScreenshots.Valid {
+		return out
+	}
+	var paths []string
+	if err := json.Unmarshal([]byte(extras.Meta.PathScreenshots.String), &paths); err != nil {
+		return out
+	}
+	for _, p := range paths {
+		if p != "" {
+			out = append(out, frontendResourcesPath+"/"+p)
+		}
+	}
+	return out
+}
+
+func nfloat(n sql.NullFloat64) any {
+	if n.Valid {
+		return n.Float64
+	}
+	return nil
 }

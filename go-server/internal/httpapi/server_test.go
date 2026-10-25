@@ -239,6 +239,10 @@ func (f *fakeStore) ScreenshotLocation(context.Context, int64) (string, string, 
 func (f *fakeStore) DeleteScreenshot(context.Context, int64) error { return nil }
 func (f *fakeStore) GetPlatform(_ context.Context, id int64) (*store.Platform, error) { return &store.Platform{ID:id, Name:"Switch", DisplayName:"Switch", Slug:"switch"}, nil }
 func (f *fakeStore) GetPlatformSourceIDs(_ context.Context, id int64) (*store.PlatformSourceIDs, error) { return &store.PlatformSourceIDs{}, nil }
+func (f *fakeStore) RomMirrorURLs(_ context.Context, romID int64) ([]string, error) { return nil, nil }
+func (f *fakeStore) ListRomFiles(_ context.Context, romID int64) ([]store.RomFile, error) { return nil, nil }
+func (f *fakeStore) ListSiblings(_ context.Context, romID, userID int64) ([]store.SiblingRom, error) { return nil, nil }
+func (f *fakeStore) GetRomMetadata(_ context.Context, romID int64) (*store.RomMetadata, error) { return nil, nil }
 func (f *fakeStore) UnidentifiedHashedRoms(_ context.Context, limit int) ([]store.HashedRom, error) { return nil, nil }
 func (f *fakeStore) SetHashMatchIDs(_ context.Context, romID int64, igdb, hasheous, tgdb *int64) error { return nil }
 func (f *fakeStore) UpdatePlatformCustomName(_ context.Context, id int64, cn string) (*store.Platform, error) { return &store.Platform{ID:id, Name:"Switch", DisplayName:cn, Slug:"switch"}, nil }

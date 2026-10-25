@@ -121,6 +121,10 @@ type DataStore interface {
 	DeleteClientToken(ctx context.Context, userID, id int64) (bool, error)
 	GetPlatform(ctx context.Context, id int64) (*store.Platform, error)
 	GetPlatformSourceIDs(ctx context.Context, platformID int64) (*store.PlatformSourceIDs, error)
+	RomMirrorURLs(ctx context.Context, romID int64) ([]string, error)
+	ListRomFiles(ctx context.Context, romID int64) ([]store.RomFile, error)
+	ListSiblings(ctx context.Context, romID, userID int64) ([]store.SiblingRom, error)
+	GetRomMetadata(ctx context.Context, romID int64) (*store.RomMetadata, error)
 	UnidentifiedHashedRoms(ctx context.Context, limit int) ([]store.HashedRom, error)
 	SetHashMatchIDs(ctx context.Context, romID int64, igdb, hasheous, tgdb *int64) error
 	UpdatePlatformCustomName(ctx context.Context, id int64, customName string) (*store.Platform, error)
@@ -528,7 +532,7 @@ func (s *Server) listRoms(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]map[string]any, 0, len(roms))
 	for i := range roms {
-		items = append(items, romJSON(&roms[i], nil, uid, false))
+		items = append(items, romJSON(&roms[i], nil, uid, false, nil))
 	}
 	resp := map[string]any{"items": items, "limit": limit, "offset": offset}
 
@@ -694,7 +698,18 @@ func (s *Server) getRom(w http.ResponseWriter, r *http.Request) {
 	if uid > 0 {
 		ru, _ = s.st.GetRomUser(ctx, uid, id)
 	}
-	writeJSON(w, http.StatusOK, romJSON(rom, ru, uid, true))
+	// Mirror URLs feed source_urls (every host a virtual rom can be fetched from).
+	if rom.IsVirtual {
+		rom.Mirrors, _ = s.st.RomMirrorURLs(ctx, id)
+	}
+	// Detail extras: files (Files tab), siblings (versions), provider metadata
+	// (Metadata + Media tabs). Each is best-effort — a failed load leaves that
+	// section empty rather than failing the whole page.
+	extras := &romExtras{}
+	extras.Files, _ = s.st.ListRomFiles(ctx, id)
+	extras.Siblings, _ = s.st.ListSiblings(ctx, id, uid)
+	extras.Meta, _ = s.st.GetRomMetadata(ctx, id)
+	writeJSON(w, http.StatusOK, romJSON(rom, ru, uid, true, extras))
 }
 
 func (s *Server) setRomProps(w http.ResponseWriter, r *http.Request) {
