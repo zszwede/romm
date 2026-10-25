@@ -7,7 +7,10 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -183,6 +186,10 @@ type downloadItem struct {
 	Version  string `json:"version"`
 	Host     string `json:"host"`
 	Part     int    `json:"part"`
+	// Group identifies a variant packaging within a category (e.g. a US NSP set
+	// vs an Asia NSP set): all files of one packaging share it ("0:0:0"), and
+	// different regional/format variants get different groups ("0:0:1").
+	Group string `json:"group"`
 }
 
 // buildDownloadLinks produces the ordered link set to dispatch for a rom: base
@@ -231,6 +238,12 @@ func buildDownloadLinks(rom *store.RomFull, hostOrder []string) (links []virtual
 		}
 		return len(lowerOrder)
 	}
+	// A source lists a game in several variants — regional (US / Asia / EU) and
+	// format (NSP / XCI / NSZ), plus multi-part sets — all under one rom, every
+	// base tagged "base". Downloading them all wastes bandwidth and pulls in the
+	// non-English (Japanese/Asian) copies. Keep one variant per category,
+	// preferring the English/Western release.
+	uniq = collapseVariants(uniq, hostRank)
 	sort.SliceStable(uniq, func(a, b int) bool {
 		if ca, cb := catRank(uniq[a].Category), catRank(uniq[b].Category); ca != cb {
 			return ca < cb
@@ -269,6 +282,194 @@ func hostOf(raw string) string {
 		return u.Host
 	}
 	return ""
+}
+
+var rePartToken = regexp.MustCompile(`(?i)[\s._-]*\bpart\s*\.?\s*(\d+)\b`)
+
+// packagingKey groups base links that are the same packaging. The parts of a
+// multi-part set share a key (the name with the "Part N" token and extension
+// removed); a standalone file is its own key. part is the 1-based part number
+// (1 for a standalone or an unnumbered file).
+func packagingKey(name string) (key string, part int) {
+	n, part := name, 1
+	if m := rePartToken.FindStringSubmatchIndex(n); m != nil {
+		part = atoiDefault(n[m[2]:m[3]], 1)
+		n = n[:m[0]] + n[m[1]:] // drop the " Part N" token
+	}
+	n = strings.TrimSuffix(n, filepath.Ext(n))
+	return strings.ToLower(strings.Join(strings.Fields(n), " ")), part
+}
+
+// nameIsUncompressed reports whether a base file's name indicates an
+// uncompressed Switch image (.nsp/.xci) rather than a compressed one
+// (.nsz/.xcz). Uncompressed is preferred: it needs no decompress step and tends
+// to be a straight dump, so it is the more robust choice when a game is offered
+// both ways.
+func nameIsUncompressed(name string) bool {
+	l := strings.ToLower(name)
+	if strings.Contains(l, "nsz") || strings.Contains(l, "xcz") {
+		return false
+	}
+	return strings.Contains(l, "nsp") || strings.Contains(l, "xci")
+}
+
+// variantKey identifies a packaging within a category: the source "group" when
+// present (all files of one packaging share it), else the name stem (multi-part
+// files of one set share a stem). So US and Asia sets, or NSP and XCI, each get
+// a distinct key while their own parts stay together.
+func variantKey(it downloadItem) string {
+	if g := strings.TrimSpace(it.Group); g != "" {
+		return "g:" + g
+	}
+	k, _ := packagingKey(it.Name)
+	return "n:" + k
+}
+
+// regionRank ranks a name's region for an English-preferring library: 0 for
+// English/Western (US/USA/World/EU/EN/UK), 2 for Asian (AS/ASIA/JP/JPN/KR/CN/
+// TW/HK), 1 for unknown. Lower is preferred.
+func regionRank(name string) int {
+	u := strings.ToUpper(name)
+	for _, t := range []string{"(AS)", "[AS]", "(ASIA)", "[ASIA]", "(JP)", "[JP]", "(JPN)", "[JPN]", "JAPAN", "(KR)", "[KR]", "KOREA", "(CN)", "[CN]", "CHINA", "(TW)", "[TW]", "(HK)", "[HK]"} {
+		if strings.Contains(u, t) {
+			return 2
+		}
+	}
+	for _, t := range []string{"(US)", "[US]", "(USA)", "[USA]", "(WORLD)", "[WORLD]", "(EU)", "[EU]", "(EUR)", "[EUR]", "EUROPE", "(EN)", "[EN]", "(UK)", "[UK]"} {
+		if strings.Contains(u, t) {
+			return 0
+		}
+	}
+	return 1
+}
+
+// versionKey turns "1.7.0" into comparable ints (higher = newer).
+func versionKey(v string) []int {
+	var out []int
+	for _, p := range strings.FieldsFunc(v, func(r rune) bool { return r < '0' || r > '9' }) {
+		n, _ := strconv.Atoi(p)
+		out = append(out, n)
+	}
+	return out
+}
+
+// versionNewer reports whether version a is newer than b.
+func versionNewer(a, b []int) bool {
+	for i := 0; i < len(a) && i < len(b); i++ {
+		if a[i] != b[i] {
+			return a[i] > b[i]
+		}
+	}
+	return len(a) > len(b)
+}
+
+// collapseVariants keeps a single packaging per category (base / update / DLC)
+// when a rom's virtual_contents offers several — regional (US / Asia / EU) and
+// format (NSP / XCI / NSZ) variants, plus multi-part sets. Downloading every
+// variant wastes bandwidth and pulls in the non-English copies the user does
+// not want. For each category one variant group is chosen, preferring: English/
+// Western region, then an uncompressed image (NSP/XCI over NSZ), then the latest
+// version (updates), then the preferred host, then fewer files. A chosen
+// multi-part set is kept whole; unknown-category items pass through untouched.
+func collapseVariants(items []downloadItem, hostRank func(string) int) []downloadItem {
+	byCat := map[int][]downloadItem{}
+	var catOrder []int
+	for _, it := range items {
+		c := catRank(it.Category)
+		if _, ok := byCat[c]; !ok {
+			catOrder = append(catOrder, c)
+		}
+		byCat[c] = append(byCat[c], it)
+	}
+	out := make([]downloadItem, 0, len(items))
+	for _, c := range catOrder {
+		its := byCat[c]
+		if c == 3 { // unknown category — never collapse
+			out = append(out, its...)
+			continue
+		}
+		groups := map[string][]downloadItem{}
+		var gorder []string
+		for _, it := range its {
+			k := variantKey(it)
+			if _, ok := groups[k]; !ok {
+				gorder = append(gorder, k)
+			}
+			groups[k] = append(groups[k], it)
+		}
+		if len(groups) <= 1 {
+			out = append(out, its...)
+			continue
+		}
+		best := gorder[0]
+		for _, k := range gorder[1:] {
+			if betterVariant(groups[k], groups[best], c, hostRank) {
+				best = k
+			}
+		}
+		out = append(out, groups[best]...)
+	}
+	return out
+}
+
+// group aggregates used to compare two variant packagings.
+func groupRegion(g []downloadItem) int {
+	r := 9
+	for _, it := range g {
+		if rr := regionRank(it.Name); rr < r {
+			r = rr
+		}
+	}
+	return r
+}
+func groupUncompressed(g []downloadItem) bool {
+	for _, it := range g {
+		if nameIsUncompressed(it.Name) {
+			return true
+		}
+	}
+	return false
+}
+func groupHostRank(g []downloadItem, hostRank func(string) int) int {
+	r := 1 << 30
+	for _, it := range g {
+		if hr := hostRank(it.Host); hr < r {
+			r = hr
+		}
+	}
+	return r
+}
+func groupVersion(g []downloadItem) []int {
+	var best []int
+	for _, it := range g {
+		if v := versionKey(it.Version); versionNewer(v, best) {
+			best = v
+		}
+	}
+	return best
+}
+
+// betterVariant reports whether packaging a should be preferred over b for a
+// category (0 base, 1 update, 2 dlc).
+func betterVariant(a, b []downloadItem, cat int, hostRank func(string) int) bool {
+	if ra, rb := groupRegion(a), groupRegion(b); ra != rb {
+		return ra < rb
+	}
+	if ua, ub := groupUncompressed(a), groupUncompressed(b); ua != ub {
+		return ua
+	}
+	if cat == 1 { // updates: newest version wins
+		if va, vb := groupVersion(a), groupVersion(b); versionNewer(va, vb) || versionNewer(vb, va) {
+			return versionNewer(va, vb)
+		}
+	}
+	if ha, hb := groupHostRank(a, hostRank), groupHostRank(b, hostRank); ha != hb {
+		return ha < hb
+	}
+	if len(a) != len(b) {
+		return len(a) < len(b)
+	}
+	return variantKey(a[0]) < variantKey(b[0])
 }
 
 // virtualMerge folds several same-game roms into one keeper (the duplicate-merge
