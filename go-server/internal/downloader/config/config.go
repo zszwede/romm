@@ -146,6 +146,42 @@ func Load(path string) (*Config, error) {
 	return &c, c.validate()
 }
 
+// Overrides are runtime path overrides the RomM server applies after loading,
+// so the Switch steps use its own bundled switch-tool and prod.keys regardless
+// of the paths written in a config.yaml (which was authored for the container's
+// filesystem). An empty field leaves the config's value untouched.
+type Overrides struct {
+	SwitchTool string // absolute path to the switch-tool binary
+	SwitchKeys string // absolute path to prod.keys
+	WorkDir    string // per-job scratch dir (if the config's is container-only)
+	StateDir   string // job state dir
+}
+
+// ApplyOverrides rewrites the Switch steps (and optional work/state dirs) to the
+// given paths. Called before building the pipelines.
+func (c *Config) ApplyOverrides(ov Overrides) {
+	if ov.WorkDir != "" {
+		c.WorkDir = ov.WorkDir
+	}
+	if ov.StateDir != "" {
+		c.StateDir = ov.StateDir
+	}
+	for name, sys := range c.Systems {
+		for i := range sys.Steps {
+			switch sys.Steps[i].Type {
+			case "switch_decompress", "switch_merge":
+				if ov.SwitchTool != "" {
+					sys.Steps[i].Binary = ov.SwitchTool
+				}
+				if ov.SwitchKeys != "" {
+					sys.Steps[i].Keys = ov.SwitchKeys
+				}
+			}
+		}
+		c.Systems[name] = sys
+	}
+}
+
 func (c *Config) defaults() {
 	if c.Server.Listen == "" {
 		c.Server.Listen = ":8090"

@@ -18,6 +18,24 @@ func defaultConfigFile(basePath string) string {
 	return filepath.Join(basePath, "config", "config.yml")
 }
 
+// defaultExternalBins is an "external-bins" folder beside the running executable
+// (where RomM's bundled tools like switch-tool live); falls back to "./external-bins".
+func defaultExternalBins() string {
+	if exe, err := os.Executable(); err == nil {
+		return filepath.Join(filepath.Dir(exe), "external-bins")
+	}
+	return "external-bins"
+}
+
+// defaultSwitchKeys is <BasePath>/resources/switch/prod.keys (the app resources
+// folder), else "" when BasePath is unset.
+func defaultSwitchKeys(basePath string) string {
+	if basePath == "" {
+		return ""
+	}
+	return filepath.Join(basePath, "resources", "switch", "prod.keys")
+}
+
 type Config struct {
 	Addr     string // listen address, e.g. ":8088"
 	DBHost   string
@@ -78,6 +96,17 @@ type Config struct {
 	// server dispatches to an external merge service if MergeServiceURL is set.
 	DownloaderConfig string
 
+	// ExternalBins is the folder holding RomM's bundled external tool binaries
+	// (the Switch switch-tool lives here as `switch-tool`). The in-process
+	// downloader points its Switch steps at it, overriding the container paths in
+	// config.yaml. Defaults to an `external-bins` dir beside the executable; set
+	// ROMM_EXTERNAL_BINS to relocate it.
+	ExternalBins string
+	// SwitchKeys is the path to the Switch prod.keys. Defaults to
+	// <BASE_PATH>/resources/switch/prod.keys (the app resources folder); set
+	// ROMM_SWITCH_KEYS to point elsewhere.
+	SwitchKeys string
+
 	// OIDC config (OIDC_* env vars). Login endpoints activate when Enabled.
 	OIDC OIDCConfig
 }
@@ -124,6 +153,8 @@ func FromEnv() Config {
 		WebRoot:           os.Getenv("ROMM_WEB_ROOT"),
 		LibraryRomsDir:    os.Getenv("ROMM_LIBRARY_ROMS_DIR"),
 		DownloaderConfig:  os.Getenv("ROMM_DOWNLOADER_CONFIG"),
+		ExternalBins:      env("ROMM_EXTERNAL_BINS", defaultExternalBins()),
+		SwitchKeys:        env("ROMM_SWITCH_KEYS", defaultSwitchKeys(os.Getenv("ROMM_BASE_PATH"))),
 		OIDC: OIDCConfig{
 			Enabled:           boolEnv("OIDC_ENABLED"),
 			AllowRegistration: boolEnvDefault("OIDC_ALLOW_REGISTRATION", true),

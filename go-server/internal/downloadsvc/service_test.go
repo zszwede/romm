@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/zszwede/romm-go/internal/downloader/config"
 	"github.com/zszwede/romm-go/internal/downloader/jobs"
 	"github.com/zszwede/romm-go/internal/downloader/pipeline"
 	"github.com/zszwede/romm-go/internal/virtual"
@@ -40,7 +41,7 @@ systems:
 }
 
 func TestService_LoadDispatchCheck(t *testing.T) {
-	svc, err := LoadAndStart(writeConfig(t, true), nil)
+	svc, err := LoadAndStart(writeConfig(t, true), nil, config.Overrides{})
 	if err != nil {
 		t.Fatalf("load/start: %v", err)
 	}
@@ -69,7 +70,7 @@ func TestService_LoadDispatchCheck(t *testing.T) {
 }
 
 func TestService_RejectsUnmatchedHost(t *testing.T) {
-	svc, err := LoadAndStart(writeConfig(t, false), nil) // no hosts configured
+	svc, err := LoadAndStart(writeConfig(t, false), nil, config.Overrides{}) // no hosts configured
 	if err != nil {
 		t.Fatal(err)
 	}

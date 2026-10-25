@@ -23,6 +23,23 @@ Verify: `curl localhost:8099/api/heartbeat` and open the UI through a parallel
 Caddy vhost (see `Caddyfile.snippet`, option 1).
 
 ## 4. Cutover (your decision)
+### In-process downloads (retiring the RommDownloader container)
+Set `ROMM_DOWNLOADER_CONFIG` to the RommDownloader `config.yaml` and the Go
+binary runs the whole download→extract→merge→deliver pipeline itself, writing
+each finished job straight to the DB — no separate container, no
+`merge_service_url` (the container hostname in config.yml is irrelevant here).
+Archive extraction is **pure-Go** (zip/7z/rar/tar/gz/xz/bz2/zst), so no `7z` or
+`unar` needs to be installed. The Nintendo Switch steps still need the
+`switch-tool` binary and `prod.keys`; RomM resolves them from its own locations,
+overriding whatever paths the config.yaml carries:
+- `ROMM_EXTERNAL_BINS` — folder holding bundled tools; `switch-tool` lives here.
+  Defaults to an `external-bins/` dir beside the executable.
+- `ROMM_SWITCH_KEYS` — path to `prod.keys`. Defaults to
+  `<ROMM_BASE_PATH>/resources/switch/prod.keys`.
+
+Once in-process downloads are verified end to end (including a Switch `.nsz`
+merge), the `rommdownloader` container can be deleted.
+
 The rewrite is a drop-in for the whole app — browse, search, play (EmulatorJS),
 favorites, collections, saves/states sync + edits, scan, ROM upload, rom_user
 state, notes, media, settings, user management, permissions, client tokens,

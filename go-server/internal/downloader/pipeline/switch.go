@@ -33,13 +33,15 @@ func newSwitchBase(c config.Step) (switchBase, error) {
 		bin = "switch-tool"
 	}
 	if _, err := lookPath(bin); err != nil {
-		return switchBase{}, err
+		return switchBase{}, fmt.Errorf("switch-tool not found at %q "+
+			"(bundle it in RomM's external-bins folder or set ROMM_EXTERNAL_BINS): %w", bin, err)
 	}
 	if c.Keys == "" {
-		return switchBase{}, fmt.Errorf("keys (prod.keys path) is required")
+		return switchBase{}, fmt.Errorf("switch prod.keys path is required " +
+			"(place it at <resources>/switch/prod.keys or set ROMM_SWITCH_KEYS)")
 	}
 	if _, err := os.Stat(c.Keys); err != nil {
-		return switchBase{}, fmt.Errorf("keys: %w", err)
+		return switchBase{}, fmt.Errorf("switch prod.keys not found at %q (set ROMM_SWITCH_KEYS): %w", c.Keys, err)
 	}
 	return switchBase{bin: bin, keys: c.Keys, timeout: c.Timeout, deleteInputs: boolOr(c.DeleteInputs, true)}, nil
 }

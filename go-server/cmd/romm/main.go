@@ -10,6 +10,7 @@ import (
 
 	"github.com/zszwede/romm-go/internal/achievements"
 	"github.com/zszwede/romm-go/internal/config"
+	dlconfig "github.com/zszwede/romm-go/internal/downloader/config"
 	"github.com/zszwede/romm-go/internal/downloadsvc"
 	"github.com/zszwede/romm-go/internal/httpapi"
 	"github.com/zszwede/romm-go/internal/metadata"
@@ -99,13 +100,20 @@ func main() {
 	var virt httpapi.VirtualService
 	switch {
 	case cfg.DownloaderConfig != "":
-		svc, err := downloadsvc.LoadAndStart(cfg.DownloaderConfig, st)
+		// Point the Switch steps at RomM's own bundled switch-tool + keys,
+		// overriding the container paths written in the config.yaml.
+		ov := dlconfig.Overrides{SwitchKeys: cfg.SwitchKeys}
+		if cfg.ExternalBins != "" {
+			ov.SwitchTool = filepath.Join(cfg.ExternalBins, "switch-tool")
+		}
+		svc, err := downloadsvc.LoadAndStart(cfg.DownloaderConfig, st, ov)
 		if err != nil {
 			log.Fatalf("downloader: %v", err)
 		}
 		defer svc.Shutdown()
 		virt = svc
-		log.Printf("virtual downloads: in-process (config %s)", cfg.DownloaderConfig)
+		log.Printf("virtual downloads: in-process (config %s; switch-tool %s, keys %s)",
+			cfg.DownloaderConfig, ov.SwitchTool, ov.SwitchKeys)
 	case cfg.MergeServiceURL != "":
 		virt = virtual.NewClient(cfg.MergeServiceURL, cfg.MergeServiceToken)
 		log.Printf("virtual downloads: dispatch to %s", cfg.MergeServiceURL)

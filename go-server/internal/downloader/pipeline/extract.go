@@ -13,13 +13,12 @@ import (
 	"github.com/zszwede/romm-go/internal/downloader/fsutil"
 )
 
-// extract unpacks archives (any format 7z reads) and passes everything else
-// through unchanged - a download that is already a plain rom is a no-op.
+// extract unpacks archives and passes everything else through unchanged — a
+// download that is already a plain rom is a no-op. Extraction is pure-Go (no
+// external 7z/unar binary): zip, 7z, rar, tar and gz/xz/bz2/zst streams.
 // Multi-volume sets (.partN.rar, .rar+.r00, .7z.001, .zip+.z01) are unpacked
 // once from their first volume.
 type extract struct {
-	bin          string
-	rarFallback  string // extractor for RARs 7z can't decode ("unar"); "" if absent
 	keepArchives bool
 	recursive    bool
 	password     string
@@ -33,13 +32,6 @@ type extract struct {
 var defaultNeverExtract = []string{`(?i)\.(nsp|xci|nsz|xcz|iso|chd|cso|rvz|wbfs|wua|wux)$`}
 
 func newExtract(c config.Step) (Step, error) {
-	bin := c.Binary
-	if bin == "" {
-		bin = "7z"
-	}
-	if _, err := lookPath(bin); err != nil {
-		return nil, err
-	}
 	pats := c.Exclude
 	if len(pats) == 0 {
 		pats = defaultNeverExtract
@@ -48,18 +40,8 @@ func newExtract(c config.Step) (Step, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Some scene RARs (e.g. Ziperto) use a RAR method 7-Zip cannot decode
-	// ("Unsupported Method") and silently yields 0-byte output. The official
-	// unar/The Unarchiver handles every RAR method, so use it as a fallback
-	// when present. Optional: absence just disables the fallback.
-	rarFallback := ""
-	if _, err := lookPath("unar"); err == nil {
-		rarFallback = "unar"
-	}
 	return &extract{
 		never:        never,
-		bin:          bin,
-		rarFallback:  rarFallback,
 		keepArchives: c.KeepArchives,
 		recursive:    boolOr(c.Recursive, true),
 		password:     c.Password,
@@ -76,7 +58,6 @@ var (
 	reNumbered1  = regexp.MustCompile(`(?i)\.(7z|zip|rar|tar)\.0*1$`)
 	reNumberedN  = regexp.MustCompile(`(?i)\.(7z|zip|rar|tar)\.\d+$`)
 	reArchiveExt = regexp.MustCompile(`(?i)\.(rar|zip|7z|gz|tgz|xz|bz2|zst|tar)$`)
-	reRarAny     = regexp.MustCompile(`(?i)(\.part\d+)?\.rar$`)
 )
 
 // classify: "first" = feed to 7z, "volume" = part of a set, "" = not an archive.
@@ -127,36 +108,24 @@ func (e *extract) Run(ctx context.Context, job *Job, dir string, files []string)
 				return nil, err
 			}
 			job.Log.Info("extracting", "archive", filepath.Base(a))
-			// "-p" (possibly empty) keeps 7z from prompting for a password
-			args := []string{"x", "-y", "-bd", "-p" + e.password, "-o" + dest, a}
 			runErr := func() error {
-				_, _, err := runCmd(ctx, job.Log, e.timeout, nil, e.bin, args...)
-				return err
+				c := ctx
+				if e.timeout > 0 {
+					var cancel context.CancelFunc
+					c, cancel = context.WithTimeout(ctx, e.timeout)
+					defer cancel()
+				}
+				return extractArchive(c, a, dest, e.password)
 			}()
 			got, err := fsutil.ListFiles(dest)
 			if err != nil {
 				return nil, err
 			}
-			// 7z exits non-zero for partial failures too — e.g. a junk ".URL"
-			// ad shortcut inside scene packs that uses a method 7z can't decode.
-			// Tolerate that only while the archive still yielded a real (non-
-			// empty) file; the filter step keeps the wanted ROM. But some RARs
-			// use a method 7z can't decode *at all*, leaving every output 0-byte
-			// (got != empty, yet nothing usable) — retry those with unar before
-			// giving up, and never delete the source archive on failure.
-			if !hasNonEmpty(got) && e.rarFallback != "" && isRar(a) {
-				job.Log.Warn("7z produced no usable files; retrying with unar",
-					"archive", filepath.Base(a), "err", runErr)
-				fsutil.RemoveAll(got)
-				if _, _, uerr := runCmd(ctx, job.Log, e.timeout, nil, e.rarFallback,
-					"-quiet", "-force-overwrite", "-output-directory", dest, a); uerr != nil {
-					job.Log.Warn("unar reported errors", "archive", filepath.Base(a), "err", uerr)
-				}
-				if got, err = fsutil.ListFiles(dest); err != nil {
-					return nil, err
-				}
-				runErr = nil // unar is authoritative for RARs
-			}
+			// A partial failure (a junk ".URL" shortcut in a scene pack, say) is
+			// tolerated as long as the archive still yielded a real, non-empty
+			// file; the filter step keeps the wanted ROM. Only an archive that
+			// produced nothing usable is a hard error — and then the source is
+			// kept so a retry can re-extract without re-downloading.
 			if !hasNonEmpty(got) {
 				// Keep the source archive (we return before the delete below) so
 				// a retry can re-extract without re-downloading.
@@ -183,8 +152,6 @@ func (e *extract) Run(ctx context.Context, job *Job, dir string, files []string)
 	}
 	return nil, fmt.Errorf("archives nested too deep")
 }
-
-func isRar(path string) bool { return reRarAny.MatchString(path) }
 
 // hasNonEmpty reports whether any of paths is a non-empty (>0 byte) file — the
 // signal that an extraction actually yielded usable content rather than the

@@ -64,12 +64,15 @@ func New(cfg *config.Config, updater RomUpdater) (*Service, error) {
 	return s, nil
 }
 
-// LoadAndStart loads a RommDownloader config.yaml and starts the service.
-func LoadAndStart(path string, updater RomUpdater) (*Service, error) {
+// LoadAndStart loads a RommDownloader config.yaml, applies the runtime path
+// overrides (so the Switch steps use RomM's bundled switch-tool + keys, not the
+// container paths in the file), and starts the service.
+func LoadAndStart(path string, updater RomUpdater, ov config.Overrides) (*Service, error) {
 	cfg, err := config.Load(path)
 	if err != nil {
 		return nil, err
 	}
+	cfg.ApplyOverrides(ov)
 	return New(cfg, updater)
 }
 

@@ -51,6 +51,14 @@ Environment=ROMM_CONFIG_FILE=/home/xiam/romm/config/config.yml
 #   SCREENSCRAPER_USER=...    SCREENSCRAPER_PASSWORD=...       # user acct (raises quota)
 #   RETROACHIEVEMENTS_API_KEY=...                  # achievements
 #   ROMM_DOWNLOADER_CONFIG=/home/xiam/RommDownloader/config.yaml   # in-process downloads
+# In-process downloads need no separate container and no merge_service_url — the
+# pipeline runs in this binary and writes finished jobs straight to the DB.
+# Archive extraction is pure-Go (no 7z/unar on the host). The Switch steps use
+# RomM's own bundled tool + keys, overriding the paths in config.yaml:
+#   ROMM_EXTERNAL_BINS=/home/xiam/romm-fork/go-server/external-bins  # holds `switch-tool`
+#     (default: an external-bins/ dir beside the romm-go executable)
+#   ROMM_SWITCH_KEYS=/media/8TB/Retro/.romm/resources/switch/prod.keys
+#     (default: <ROMM_BASE_PATH>/resources/switch/prod.keys)
 #   OIDC_ENABLED=true  OIDC_CLIENT_ID=...  OIDC_CLIENT_SECRET=...   # optional SSO
 #     OIDC_SERVER_METADATA_URL=...  OIDC_REDIRECT_URI=...
 
