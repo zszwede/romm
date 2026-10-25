@@ -227,6 +227,9 @@ func (f *fakeStore) ListRomNotes(context.Context, int64, int64) ([]store.Note, e
 func (f *fakeStore) SetRomNote(_ context.Context, uid, rid int64, md string, pub bool) (*store.Note, error) { return &store.Note{ID:1, RomID:rid, UserID:uid, RawMarkdown:md, IsPublic:pub}, nil }
 func (f *fakeStore) ClearRomNote(context.Context, int64, int64) error { return nil }
 func (f *fakeStore) SetRomManual(context.Context, int64, string) error { return nil }
+func (f *fakeStore) ListClientTokens(context.Context, int64) ([]store.ClientToken, error) { return []store.ClientToken{}, nil }
+func (f *fakeStore) CreateClientToken(_ context.Context, uid int64, name, _, _ string, exp *time.Time) (*store.ClientToken, error) { return &store.ClientToken{ID:1, UserID:uid, Name:name, Scopes:[]string{}, ExpiresAt:exp}, nil }
+func (f *fakeStore) DeleteClientToken(_ context.Context, _ , id int64) (bool, error) { return id>0, nil }
 func (f *fakeStore) InsertScreenshot(context.Context, store.Screenshot) (int64, error) { return 1, nil }
 func (f *fakeStore) ListScreenshots(context.Context, int64, int64) ([]store.Screenshot, error) { return []store.Screenshot{}, nil }
 func (f *fakeStore) ScreenshotLocation(context.Context, int64) (string, string, bool, error) { return "", "", false, nil }

@@ -112,6 +112,9 @@ type DataStore interface {
 	SetRomNote(ctx context.Context, userID, romID int64, markdown string, isPublic bool) (*store.Note, error)
 	ClearRomNote(ctx context.Context, userID, romID int64) error
 	SetRomManual(ctx context.Context, romID int64, relPath string) error
+	ListClientTokens(ctx context.Context, userID int64) ([]store.ClientToken, error)
+	CreateClientToken(ctx context.Context, userID int64, name, hashedToken, scopes string, expiresAt *time.Time) (*store.ClientToken, error)
+	DeleteClientToken(ctx context.Context, userID, id int64) (bool, error)
 	GetPlatform(ctx context.Context, id int64) (*store.Platform, error)
 	UpdatePlatformCustomName(ctx context.Context, id int64, customName string) (*store.Platform, error)
 	InsertScreenshot(ctx context.Context, sc store.Screenshot) (int64, error)
@@ -316,6 +319,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/logout", s.logout)
 	s.mux.HandleFunc("GET /api/users/me", s.usersMe)
 	s.mux.HandleFunc("GET /api/users", s.listUsers)
+	s.mux.HandleFunc("GET /api/client-tokens", s.listClientTokens)
+	s.mux.HandleFunc("POST /api/client-tokens", s.createClientToken)
+	s.mux.HandleFunc("DELETE /api/client-tokens/{id}", s.deleteClientToken)
 	s.mux.HandleFunc("POST /api/users", s.createUser)
 	s.mux.HandleFunc("POST /api/users/invite-link", s.inviteLink)
 	s.mux.HandleFunc("GET /api/users/{id}", s.getUser)
