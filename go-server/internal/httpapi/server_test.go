@@ -223,6 +223,9 @@ func (f *fakeStore) ExcludeRom(context.Context, int64) error { return nil }
 func (f *fakeStore) ListVirtualSources(context.Context, int64) ([]store.VirtualSource, error) { return []store.VirtualSource{}, nil }
 func (f *fakeStore) UpdateVirtualSource(_ context.Context, id int64, _ store.VirtualSourceUpdate) (*store.VirtualSource, error) { return &store.VirtualSource{ID:id, Enabled:true}, nil }
 func (f *fakeStore) DeleteVirtualSource(_ context.Context, id int64) (bool, error) { return id>0, nil }
+func (f *fakeStore) CreateVirtualSource(_ context.Context, pid int64, url string) (*store.VirtualSource, error) { return &store.VirtualSource{ID:1, PlatformID:pid, URL:url, Enabled:true}, nil }
+func (f *fakeStore) CreateVirtualRom(context.Context, int64, string, store.VirtualGameInput) (bool, error) { return true, nil }
+func (f *fakeStore) ListEnabledSources(context.Context, int64) ([]string, error) { return []string{}, nil }
 func (f *fakeStore) ListRomNotes(context.Context, int64, int64) ([]store.Note, error) { return []store.Note{}, nil }
 func (f *fakeStore) SetRomNote(_ context.Context, uid, rid int64, md string, pub bool) (*store.Note, error) { return &store.Note{ID:1, RomID:rid, UserID:uid, RawMarkdown:md, IsPublic:pub}, nil }
 func (f *fakeStore) ClearRomNote(context.Context, int64, int64) error { return nil }

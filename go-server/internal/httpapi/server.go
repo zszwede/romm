@@ -108,6 +108,9 @@ type DataStore interface {
 	ListVirtualSources(ctx context.Context, platformID int64) ([]store.VirtualSource, error)
 	UpdateVirtualSource(ctx context.Context, id int64, up store.VirtualSourceUpdate) (*store.VirtualSource, error)
 	DeleteVirtualSource(ctx context.Context, id int64) (bool, error)
+	CreateVirtualSource(ctx context.Context, platformID int64, url string) (*store.VirtualSource, error)
+	CreateVirtualRom(ctx context.Context, platformID int64, fsSlug string, g store.VirtualGameInput) (bool, error)
+	ListEnabledSources(ctx context.Context, platformID int64) ([]string, error)
 	ListRomNotes(ctx context.Context, romID, userID int64) ([]store.Note, error)
 	SetRomNote(ctx context.Context, userID, romID int64, markdown string, isPublic bool) (*store.Note, error)
 	ClearRomNote(ctx context.Context, userID, romID int64) error
@@ -283,6 +286,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/virtual/merge", s.virtualMerge)
 	s.mux.HandleFunc("POST /api/virtual/roms/{id}/exclude", s.virtualExclude)
 	s.mux.HandleFunc("GET /api/virtual/sources", s.virtualSources)
+	s.mux.HandleFunc("POST /api/virtual/assign", s.virtualAssign)
+	s.mux.HandleFunc("POST /api/virtual/platforms/{id}/sync", s.virtualSyncPlatform)
 	s.mux.HandleFunc("PATCH /api/virtual/sources/{id}", s.virtualUpdateSource)
 	s.mux.HandleFunc("DELETE /api/virtual/sources/{id}", s.virtualDeleteSource)
 	s.mux.HandleFunc("POST /api/virtual/roms/{id}/mark-download", s.virtualMarkDownload)

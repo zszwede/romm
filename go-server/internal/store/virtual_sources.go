@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"strings"
 	"time"
+
+	"github.com/zszwede/romm-go/internal/hash"
 )
 
 // VirtualSource is an archive.org source definition (virtual_rom_sources).
@@ -99,3 +101,89 @@ func (s *Store) DeleteVirtualSource(ctx context.Context, id int64) (bool, error)
 	n, _ := res.RowsAffected()
 	return n > 0, nil
 }
+
+// CreateVirtualSource inserts an archive.org source for a platform.
+func (s *Store) CreateVirtualSource(ctx context.Context, platformID int64, url string) (*VirtualSource, error) {
+	res, err := s.DB.ExecContext(ctx, `
+		INSERT INTO virtual_rom_sources (platform_id, url, kind, enabled, created_at, updated_at)
+		VALUES (?, ?, 'archive', 1, NOW(), NOW())`, platformID, url)
+	if err != nil {
+		return nil, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+	return scanVirtualSource(s.DB.QueryRowContext(ctx, `SELECT `+vsCols+` FROM virtual_rom_sources WHERE id = ?`, id))
+}
+
+// VirtualGameInput is one discovered game to create as a virtual rom.
+type VirtualGameInput struct {
+	Name      string
+	SourceURL string
+	Size      int64
+}
+
+// CreateVirtualRom inserts a virtual rom for a discovered game, skipping ones
+// excluded for the platform or already present. Returns whether a row was made.
+func (s *Store) CreateVirtualRom(ctx context.Context, platformID int64, fsSlug string, g VirtualGameInput) (bool, error) {
+	return createVirtualRom(ctx, s.DB, platformID, fsSlug, g)
+}
+
+func createVirtualRom(ctx context.Context, e txer, platformID int64, fsSlug string, g VirtualGameInput) (bool, error) {
+	noExt := g.Name
+	if i := strings.LastIndex(g.Name, "."); i > 0 {
+		noExt = g.Name[:i]
+	}
+	// Excluded for this platform? (matched on fs_name_no_ext)
+	var excluded int
+	if err := e.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM virtual_exclusions WHERE platform_id = ? AND name = ?`, platformID, noExt).
+		Scan(&excluded); err != nil {
+		return false, err
+	}
+	if excluded > 0 {
+		return false, nil
+	}
+	fsPath := "roms/" + fsSlug
+	ext := ""
+	if i := strings.LastIndex(g.Name, "."); i > 0 {
+		ext = g.Name[i+1:]
+	}
+	noTags := strings.Join(strings.Fields(storeTagRE.ReplaceAllString(noExt, " ")), " ")
+	fph := virtualFullPathHash(fsPath, g.Name)
+	res, err := e.ExecContext(ctx, `
+		INSERT INTO roms
+			(platform_id, fs_name, fs_name_no_tags, fs_extension, fs_path, fs_name_no_ext,
+			 fs_size_bytes, full_path_hash, name, is_virtual, missing_from_fs, source_url,
+			 download_status, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, NULL, NOW(), NOW())
+		ON DUPLICATE KEY UPDATE updated_at = updated_at`,
+		platformID, g.Name, noTags, ext, fsPath, noExt, g.Size, fph, noExt, g.SourceURL)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil // 0 when the ON DUPLICATE no-op fired (already present)
+}
+
+// ListEnabledSources returns a platform's enabled source URLs.
+func (s *Store) ListEnabledSources(ctx context.Context, platformID int64) ([]string, error) {
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT url FROM virtual_rom_sources WHERE platform_id = ? AND COALESCE(enabled,1) = 1`, platformID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var u string
+		if err := rows.Scan(&u); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+func virtualFullPathHash(fsPath, fsName string) string { return hash.FullPathHash(fsPath, fsName) }

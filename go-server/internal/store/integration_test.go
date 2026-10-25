@@ -343,3 +343,54 @@ func TestExcludeRom_Integration(t *testing.T) {
 	}
 	t.Logf("exclude OK against live schema (rom %d), rolling back", id)
 }
+
+// TestCreateVirtualRom_Integration validates virtual-rom creation (the scraper's
+// write) against the real schema in a rolled-back tx. Skipped unless DB creds set.
+func TestCreateVirtualRom_Integration(t *testing.T) {
+	host, pass := os.Getenv("DB_HOST"), os.Getenv("DB_PASSWD")
+	if host == "" || pass == "" {
+		t.Skip("DB_HOST/DB_PASSWD not set; skipping live schema test")
+	}
+	envOr := func(k, d string) string {
+		if v := os.Getenv(k); v != "" {
+			return v
+		}
+		return d
+	}
+	st, err := Open(host, envOr("DB_PORT", "3306"), envOr("DB_USER", "romm-user"), pass, envOr("DB_NAME", "romm"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	var pid int64
+	if err := st.DB.QueryRowContext(ctx, "SELECT id FROM platforms LIMIT 1").Scan(&pid); err != nil {
+		t.Fatalf("pick platform: %v", err)
+	}
+	tx, err := st.DB.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer tx.Rollback()
+
+	made, err := createVirtualRom(ctx, tx, pid, "__gotest__", VirtualGameInput{
+		Name: "__VirtProbe__ (USA).nsp", SourceURL: "https://archive.org/download/x/y.nsp", Size: 123,
+	})
+	if err != nil {
+		t.Fatalf("createVirtualRom against live schema: %v", err)
+	}
+	if !made {
+		t.Fatal("expected a row to be created")
+	}
+	var isVirtual, missing int
+	var src string
+	if err := tx.QueryRowContext(ctx,
+		"SELECT is_virtual, missing_from_fs, COALESCE(source_url,'') FROM roms WHERE platform_id=? AND fs_name=?",
+		pid, "__VirtProbe__ (USA).nsp").Scan(&isVirtual, &missing, &src); err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if isVirtual != 1 || missing != 1 || src == "" {
+		t.Fatalf("virtual rom wrong: is_virtual=%d missing=%d src=%q", isVirtual, missing, src)
+	}
+	t.Logf("createVirtualRom OK against live schema (platform %d), rolling back", pid)
+}

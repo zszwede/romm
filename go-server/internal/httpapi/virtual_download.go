@@ -4,11 +4,90 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"time"
 
+	"github.com/zszwede/romm-go/internal/archiveorg"
 	"github.com/zszwede/romm-go/internal/store"
 )
+
+// virtualAssign creates archive.org sources for a platform and kicks off a sync
+// that discovers and creates virtual roms from them.
+func (s *Server) virtualAssign(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.collectionUserScope(w, r, "roms.write"); !ok {
+		return
+	}
+	var body struct {
+		PlatformID int64    `json:"platform_id"`
+		URLs       []string `json:"urls"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<18)).Decode(&body); err != nil || body.PlatformID <= 0 {
+		writeErr(w, http.StatusBadRequest, "platform_id and urls required")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	created := []store.VirtualSource{}
+	for _, u := range body.URLs {
+		src, err := s.st.CreateVirtualSource(ctx, body.PlatformID, u)
+		if err != nil || src == nil {
+			writeErr(w, http.StatusInternalServerError, "create source failed")
+			return
+		}
+		created = append(created, *src)
+	}
+	s.enqueueVirtualSync(body.PlatformID)
+	writeJSON(w, http.StatusOK, created)
+}
+
+func (s *Server) virtualSyncPlatform(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.collectionUserScope(w, r, "roms.write"); !ok {
+		return
+	}
+	id := int64(atoiDefault(r.PathValue("id"), 0))
+	s.enqueueVirtualSync(id)
+	writeJSON(w, http.StatusOK, map[string]any{"msg": "Sync started"})
+}
+
+// enqueueVirtualSync discovers and creates virtual roms for a platform's enabled
+// sources, on the worker queue (archive.org fetches can be slow).
+func (s *Server) enqueueVirtualSync(platformID int64) {
+	if s.queue == nil {
+		return
+	}
+	s.queue.Enqueue("virtual-sync", func(ctx context.Context) error {
+		fsSlug, ok := s.platformFsSlug(ctx, platformID)
+		if !ok {
+			return nil
+		}
+		urls, err := s.st.ListEnabledSources(ctx, platformID)
+		if err != nil {
+			return err
+		}
+		client := archiveorg.NewClient()
+		for _, u := range urls {
+			games, _, err := client.ListGames(ctx, u, nil) // nil exts = keep all ROM-ish files
+			if err != nil {
+				log.Printf("virtual-sync: %s: %v", u, err)
+				continue
+			}
+			for _, g := range games {
+				var size int64
+				if g.Size != nil {
+					size = *g.Size
+				}
+				if _, err := s.st.CreateVirtualRom(ctx, platformID, fsSlug, store.VirtualGameInput{
+					Name: g.Name, SourceURL: g.SourceURL, Size: size,
+				}); err != nil {
+					log.Printf("virtual-sync: create %q: %v", g.Name, err)
+				}
+			}
+		}
+		s.sockets.Emit("scan:done", map[string]any{})
+		return nil
+	})
+}
 
 // Virtual-download management (the user's RommDownloader fork feature): the
 // wanted/queued flags and the queue view. Dispatch to the merge service and
