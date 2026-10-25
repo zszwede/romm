@@ -90,6 +90,11 @@ type DataStore interface {
 	GetDevice(ctx context.Context, userID int64, id string) (*store.Device, error)
 	ListDevices(ctx context.Context, userID int64) ([]store.Device, error)
 	DeleteDevice(ctx context.Context, userID int64, id string) (bool, error)
+	CreateCollection(ctx context.Context, userID int64, name, description string, isPublic, isFavorite bool, romIDs []int64) (*store.Collection, error)
+	GetCollection(ctx context.Context, userID, id int64) (*store.Collection, error)
+	AddRomsToCollection(ctx context.Context, userID, id int64, romIDs []int64) (*store.Collection, error)
+	RemoveRomsFromCollection(ctx context.Context, userID, id int64, romIDs []int64) (*store.Collection, error)
+	DeleteCollection(ctx context.Context, userID, id int64) (bool, error)
 }
 
 // Deps are the server's collaborators. Passed as a struct so new ones can be
@@ -196,7 +201,13 @@ func (s *Server) routes() {
 	// a nice download name + player path); serve both the same way.
 	s.mux.HandleFunc("GET /api/roms/{id}/content/{name...}", s.getRomContent)
 	s.mux.HandleFunc("GET /api/roms/{id}/achievements", s.getAchievements)
+	s.mux.HandleFunc("GET /api/roms/{id}/similar", s.getSimilarRoms)
 	s.mux.HandleFunc("GET /api/collections", s.listCollections)
+	s.mux.HandleFunc("POST /api/collections", s.createCollection)
+	s.mux.HandleFunc("GET /api/collections/{id}", s.getCollection)
+	s.mux.HandleFunc("DELETE /api/collections/{id}", s.deleteCollection)
+	s.mux.HandleFunc("POST /api/collections/{id}/roms", s.addRomsToCollection)
+	s.mux.HandleFunc("DELETE /api/collections/{id}/roms", s.removeRomsFromCollection)
 	s.mux.HandleFunc("PUT /api/roms/{id}/props", s.setRomProps)
 	s.mux.HandleFunc("POST /api/scan", s.triggerScan)
 	s.mux.HandleFunc("GET /api/scan", s.listScans)

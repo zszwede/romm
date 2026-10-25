@@ -185,6 +185,24 @@ func (f *fakeStore) ListDevices(context.Context, int64) ([]store.Device, error) 
 func (f *fakeStore) DeleteDevice(_ context.Context, _ int64, id string) (bool, error) {
 	return id == "dev-1", nil
 }
+func (f *fakeStore) CreateCollection(_ context.Context, userID int64, name, desc string, pub, fav bool, romIDs []int64) (*store.Collection, error) {
+	if romIDs == nil {
+		romIDs = []int64{}
+	}
+	return &store.Collection{ID: 10, Name: name, Description: desc, IsPublic: pub, IsFavorite: fav, UserID: userID, RomIDs: romIDs}, nil
+}
+func (f *fakeStore) GetCollection(_ context.Context, userID, id int64) (*store.Collection, error) {
+	return &store.Collection{ID: id, Name: "Favorites", IsFavorite: true, UserID: userID, RomIDs: []int64{}}, nil
+}
+func (f *fakeStore) AddRomsToCollection(_ context.Context, userID, id int64, romIDs []int64) (*store.Collection, error) {
+	return &store.Collection{ID: id, Name: "Favorites", IsFavorite: true, UserID: userID, RomIDs: romIDs}, nil
+}
+func (f *fakeStore) RemoveRomsFromCollection(_ context.Context, userID, id int64, _ []int64) (*store.Collection, error) {
+	return &store.Collection{ID: id, Name: "Favorites", IsFavorite: true, UserID: userID, RomIDs: []int64{}}, nil
+}
+func (f *fakeStore) DeleteCollection(_ context.Context, _ int64, id int64) (bool, error) {
+	return id == 10, nil
+}
 func (f *fakeStore) UserIDByUsername(context.Context, string) (int64, error) { return f.userID, nil }
 func (f *fakeStore) SetRomUserProps(_ context.Context, uid, romID int64, p store.RomUserProps) (int, error) {
 	f.mu.Lock()

@@ -44,6 +44,16 @@ func (s *Server) getRecommendations(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, []any{})
 }
 
+// getSimilarRoms returns library games similar to one (none in this build; the
+// similarity index isn't computed). A bare array — the detail view iterates it.
+func (s *Server) getSimilarRoms(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.authUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	writeJSON(w, http.StatusOK, []any{})
+}
+
 // getSmartCollections returns smart collections (none in this build).
 func (s *Server) getSmartCollections(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.authUser(r); !ok {

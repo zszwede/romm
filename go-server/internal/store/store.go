@@ -325,12 +325,13 @@ func nz(s string) any {
 // --- collections (Phase 6, read) ---
 
 type Collection struct {
-	ID          int64  `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	IsPublic    bool   `json:"is_public"`
-	IsFavorite  bool   `json:"is_favorite"`
-	UserID      int64  `json:"user_id"`
+	ID          int64   `json:"id"`
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
+	IsPublic    bool    `json:"is_public"`
+	IsFavorite  bool    `json:"is_favorite"`
+	UserID      int64   `json:"user_id"`
+	RomIDs      []int64 `json:"rom_ids"`
 }
 
 // ListCollections returns all collections (ordered by name).
@@ -351,7 +352,50 @@ func (s *Store) ListCollections(ctx context.Context) ([]Collection, error) {
 		}
 		out = append(out, c)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Attach rom_ids to each collection so the UI can show membership/favorites.
+	if err := s.fillCollectionRomIDs(ctx, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// fillCollectionRomIDs loads collections_roms for the given collections in one
+// query and attaches each collection's rom ids.
+func (s *Store) fillCollectionRomIDs(ctx context.Context, cols []Collection) error {
+	if len(cols) == 0 {
+		return nil
+	}
+	idx := make(map[int64]int, len(cols))
+	ph := ""
+	args := make([]any, 0, len(cols))
+	for i := range cols {
+		cols[i].RomIDs = []int64{}
+		idx[cols[i].ID] = i
+		if i > 0 {
+			ph += ","
+		}
+		ph += "?"
+		args = append(args, cols[i].ID)
+	}
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT collection_id, rom_id FROM collections_roms WHERE collection_id IN (`+ph+`)`, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, rid int64
+		if err := rows.Scan(&cid, &rid); err != nil {
+			return err
+		}
+		if i, ok := idx[cid]; ok {
+			cols[i].RomIDs = append(cols[i].RomIDs, rid)
+		}
+	}
+	return rows.Err()
 }
 
 // EnrichFromGamelist fills a rom's empty name/summary from ES-DE gamelist.xml,
