@@ -413,13 +413,30 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/activity/heartbeat", s.activityHeartbeat)
 	s.mux.HandleFunc("DELETE /api/activity/heartbeat", s.activityHeartbeat)
 
-	// Static resources (covers, screenshots, manuals) served from disk.
+	// Static resources (covers, screenshots, manuals) served from disk. A guard
+	// refuses sensitive files (Switch prod.keys may live under resources/switch/
+	// per ROMM_SWITCH_KEYS) so they can never be fetched over HTTP.
 	if s.resourcesRoot != "" {
 		fsrv := http.StripPrefix("/assets/romm/resources/", http.FileServer(http.Dir(s.resourcesRoot)))
-		s.mux.Handle("GET /assets/romm/resources/", fsrv)
+		s.mux.Handle("GET /assets/romm/resources/", guardSensitiveFiles(fsrv))
 	}
 
 	s.mux.Handle("GET /", s.spaHandler())
+}
+
+// guardSensitiveFiles blocks HTTP access to secret files that may sit in the
+// resources tree (Switch prod.keys and any *.keys), returning 404 before the
+// file server can read them.
+func guardSensitiveFiles(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		lower := strings.ToLower(path.Clean(r.URL.Path))
+		if strings.HasSuffix(lower, ".keys") || strings.HasSuffix(lower, "prod.keys") ||
+			strings.Contains(lower, "/resources/switch/") {
+			http.NotFound(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // spaHandler serves static files, falling back to index.html for unknown paths

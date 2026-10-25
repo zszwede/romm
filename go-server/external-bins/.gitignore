@@ -1,0 +1,4 @@
+# Host/arch-specific tool binaries — don't commit.
+*
+!.gitignore
+!README.md

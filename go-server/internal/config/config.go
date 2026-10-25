@@ -106,6 +106,11 @@ type Config struct {
 	// <BASE_PATH>/resources/switch/prod.keys (the app resources folder); set
 	// ROMM_SWITCH_KEYS to point elsewhere.
 	SwitchKeys string
+	// DownloaderWorkDir / DownloaderStateDir override the config.yaml's work_dir
+	// and state_dir (which are container paths like /data/rommdl/*). Set
+	// ROMM_DOWNLOADER_WORK_DIR / ROMM_DOWNLOADER_STATE_DIR to host-writable dirs.
+	DownloaderWorkDir  string
+	DownloaderStateDir string
 
 	// OIDC config (OIDC_* env vars). Login endpoints activate when Enabled.
 	OIDC OIDCConfig
@@ -153,8 +158,10 @@ func FromEnv() Config {
 		WebRoot:           os.Getenv("ROMM_WEB_ROOT"),
 		LibraryRomsDir:    os.Getenv("ROMM_LIBRARY_ROMS_DIR"),
 		DownloaderConfig:  os.Getenv("ROMM_DOWNLOADER_CONFIG"),
-		ExternalBins:      env("ROMM_EXTERNAL_BINS", defaultExternalBins()),
-		SwitchKeys:        env("ROMM_SWITCH_KEYS", defaultSwitchKeys(os.Getenv("ROMM_BASE_PATH"))),
+		ExternalBins:       env("ROMM_EXTERNAL_BINS", defaultExternalBins()),
+		SwitchKeys:         env("ROMM_SWITCH_KEYS", defaultSwitchKeys(os.Getenv("ROMM_BASE_PATH"))),
+		DownloaderWorkDir:  os.Getenv("ROMM_DOWNLOADER_WORK_DIR"),
+		DownloaderStateDir: os.Getenv("ROMM_DOWNLOADER_STATE_DIR"),
 		OIDC: OIDCConfig{
 			Enabled:           boolEnv("OIDC_ENABLED"),
 			AllowRegistration: boolEnvDefault("OIDC_ALLOW_REGISTRATION", true),

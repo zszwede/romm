@@ -102,7 +102,11 @@ func main() {
 	case cfg.DownloaderConfig != "":
 		// Point the Switch steps at RomM's own bundled switch-tool + keys,
 		// overriding the container paths written in the config.yaml.
-		ov := dlconfig.Overrides{SwitchKeys: cfg.SwitchKeys}
+		ov := dlconfig.Overrides{
+			SwitchKeys: cfg.SwitchKeys,
+			WorkDir:    cfg.DownloaderWorkDir,
+			StateDir:   cfg.DownloaderStateDir,
+		}
 		if cfg.ExternalBins != "" {
 			ov.SwitchTool = filepath.Join(cfg.ExternalBins, "switch-tool")
 		}
