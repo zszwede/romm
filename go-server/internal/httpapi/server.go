@@ -103,6 +103,7 @@ type DataStore interface {
 	DeleteUser(ctx context.Context, id int64) (bool, error)
 	SetDownloadStatus(ctx context.Context, romID int64, status string) error
 	DownloadQueue(ctx context.Context) ([]store.QueuedRom, error)
+	MergeRoms(ctx context.Context, romIDs []int64) (*store.MergeResult, error)
 }
 
 // Deps are the server's collaborators. Passed as a struct so new ones can be
@@ -244,6 +245,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/virtual/check", s.virtualCheck)
 	s.mux.HandleFunc("POST /api/virtual/dispatch", s.virtualDispatch)
 	s.mux.HandleFunc("GET /api/virtual/queued", s.virtualQueued)
+	s.mux.HandleFunc("POST /api/virtual/merge", s.virtualMerge)
 	s.mux.HandleFunc("POST /api/virtual/roms/{id}/mark-download", s.virtualMarkDownload)
 	s.mux.HandleFunc("DELETE /api/virtual/roms/{id}/mark-download", s.virtualUnmarkDownload)
 

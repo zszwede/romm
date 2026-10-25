@@ -2,8 +2,12 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
+
+	"github.com/zszwede/romm-go/internal/store"
 )
 
 // Virtual-download management (the user's RommDownloader fork feature): the
@@ -37,6 +41,36 @@ func (s *Server) virtualMarkDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"msg": "Marked for download", "status": "wanted"})
+}
+
+// virtualMerge folds several same-game roms into one keeper (the duplicate-merge
+// feature). Destructive: deletes the absorbed rom rows.
+func (s *Server) virtualMerge(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.collectionUserScope(w, r, "roms.write"); !ok {
+		return
+	}
+	var body struct {
+		RomIDs []int64 `json:"rom_ids"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "bad body")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	res, err := s.st.MergeRoms(ctx, body.RomIDs)
+	if err != nil {
+		switch {
+		case errors.Is(err, store.ErrMergeTooFew), errors.Is(err, store.ErrMergeMultiLocal):
+			writeErr(w, http.StatusBadRequest, err.Error())
+		default:
+			writeErr(w, http.StatusInternalServerError, "merge failed")
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"msg": "ROMs merged", "keeper_id": res.KeeperID, "absorbed_ids": res.AbsorbedIDs,
+	})
 }
 
 func (s *Server) virtualUnmarkDownload(w http.ResponseWriter, r *http.Request) {

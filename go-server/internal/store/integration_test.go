@@ -222,3 +222,74 @@ func TestOIDCUserProvision_Integration(t *testing.T) {
 	}
 	t.Logf("OIDC user provision+update OK against live schema (id %d), rolling back", created.ID)
 }
+
+// TestMergeRoms_Integration validates the duplicate-merge against the real
+// schema inside an always-rolled-back transaction: two throwaway roms (one
+// physical keeper, one virtual) are inserted, merged, and the keeper must
+// survive with the absorbed row gone. Skipped unless DB creds set.
+func TestMergeRoms_Integration(t *testing.T) {
+	host, pass := os.Getenv("DB_HOST"), os.Getenv("DB_PASSWD")
+	if host == "" || pass == "" {
+		t.Skip("DB_HOST/DB_PASSWD not set; skipping live schema test")
+	}
+	envOr := func(k, d string) string {
+		if v := os.Getenv(k); v != "" {
+			return v
+		}
+		return d
+	}
+	st, err := Open(host, envOr("DB_PORT", "3306"), envOr("DB_USER", "romm-user"), pass, envOr("DB_NAME", "romm"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+	var pid int64
+	if err := st.DB.QueryRowContext(ctx, "SELECT id FROM platforms LIMIT 1").Scan(&pid); err != nil {
+		t.Fatalf("pick platform: %v", err)
+	}
+	tx, err := st.DB.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer tx.Rollback() // never persist
+
+	mk := func(name string, virtual int) int64 {
+		rec := scan.Record{PlatformID: pid, FsPath: "roms/__gotest__", FsName: name,
+			FsNameNoExt: name, FsNameNoTags: name, FsExtension: "bin", SizeBytes: 1}
+		rec.Digests.CRC32 = "00000000"
+		if err := upsertRom(ctx, tx, rec); err != nil {
+			t.Fatalf("insert %s: %v", name, err)
+		}
+		var id int64
+		if err := tx.QueryRowContext(ctx, "SELECT id FROM roms WHERE platform_id=? AND fs_name=?", pid, name).Scan(&id); err != nil {
+			t.Fatalf("lookup %s: %v", name, err)
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE roms SET is_virtual=? WHERE id=?", virtual, id); err != nil {
+			t.Fatalf("set virtual %s: %v", name, err)
+		}
+		return id
+	}
+	physical := mk("__merge_keeper__.bin", 0)
+	virtual := mk("__merge_absorbed__.bin", 1)
+
+	// Pass the virtual one first to prove the physical keeper still wins.
+	res, err := mergeRoms(ctx, tx, []int64{virtual, physical})
+	if err != nil {
+		t.Fatalf("mergeRoms against live schema: %v", err)
+	}
+	if res.KeeperID != physical {
+		t.Fatalf("keeper = %d, want physical %d", res.KeeperID, physical)
+	}
+	if len(res.AbsorbedIDs) != 1 || res.AbsorbedIDs[0] != virtual {
+		t.Fatalf("absorbed = %v, want [%d]", res.AbsorbedIDs, virtual)
+	}
+	var keeperCount, absorbedCount int
+	tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM roms WHERE id=?", physical).Scan(&keeperCount)
+	tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM roms WHERE id=?", virtual).Scan(&absorbedCount)
+	if keeperCount != 1 || absorbedCount != 0 {
+		t.Fatalf("after merge: keeper=%d absorbed=%d (want 1,0)", keeperCount, absorbedCount)
+	}
+	t.Logf("merge OK against live schema (keeper %d absorbed %d), rolling back", physical, virtual)
+}

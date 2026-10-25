@@ -222,6 +222,12 @@ func (f *fakeStore) SetDownloadStatus(context.Context, int64, string) error { re
 func (f *fakeStore) DownloadQueue(context.Context) ([]store.QueuedRom, error) {
 	return []store.QueuedRom{{RomID: 5, PlatformID: 1, Name: "x.nsp", Status: "wanted"}}, nil
 }
+func (f *fakeStore) MergeRoms(_ context.Context, ids []int64) (*store.MergeResult, error) {
+	if len(ids) < 2 {
+		return nil, store.ErrMergeTooFew
+	}
+	return &store.MergeResult{KeeperID: ids[0], AbsorbedIDs: ids[1:]}, nil
+}
 func (f *fakeStore) UserIDByUsername(context.Context, string) (int64, error) { return f.userID, nil }
 func (f *fakeStore) SetRomUserProps(_ context.Context, uid, romID int64, p store.RomUserProps) (int, error) {
 	f.mu.Lock()
