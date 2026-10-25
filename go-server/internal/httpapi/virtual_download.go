@@ -86,3 +86,19 @@ func (s *Server) virtualUnmarkDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"msg": "Download flag cleared"})
 }
+
+// virtualExclude deletes a virtual rom and records the exclusion so a later list
+// re-import won't re-add it. Destructive.
+func (s *Server) virtualExclude(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.collectionUserScope(w, r, "roms.write"); !ok {
+		return
+	}
+	id := int64(atoiDefault(r.PathValue("id"), 0))
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	if err := s.st.ExcludeRom(ctx, id); err != nil {
+		writeErr(w, http.StatusInternalServerError, "exclude failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"msg": "ROM deleted and excluded"})
+}

@@ -45,6 +45,38 @@ func (s *Store) DownloadQueue(ctx context.Context) ([]QueuedRom, error) {
 	return out, rows.Err()
 }
 
+// ExcludeRom records a virtual-game exclusion (so a later list re-import won't
+// re-add it) and deletes the rom. Runs in a tx.
+func (s *Store) ExcludeRom(ctx context.Context, romID int64) error {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if err := excludeRom(ctx, tx, romID); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+func excludeRom(ctx context.Context, tx txer, romID int64) error {
+	var platformID int64
+	var name sql.NullString
+	err := tx.QueryRowContext(ctx,
+		`SELECT platform_id, COALESCE(NULLIF(fs_name_no_ext,''), fs_name) FROM roms WHERE id = ?`, romID).
+		Scan(&platformID, &name)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT IGNORE INTO virtual_exclusions (platform_id, name, created_at, updated_at)
+		 VALUES (?, ?, NOW(), NOW())`, platformID, name.String); err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `DELETE FROM roms WHERE id = ?`, romID)
+	return err
+}
+
 // RomDownloadStatus returns a rom's current download_status ("" if null/none).
 func (s *Store) RomDownloadStatus(ctx context.Context, romID int64) (string, error) {
 	var st sql.NullString

@@ -293,3 +293,53 @@ func TestMergeRoms_Integration(t *testing.T) {
 	}
 	t.Logf("merge OK against live schema (keeper %d absorbed %d), rolling back", physical, virtual)
 }
+
+// TestExcludeRom_Integration validates exclude (record exclusion + delete rom)
+// against the real schema in a rolled-back tx. Skipped unless DB creds set.
+func TestExcludeRom_Integration(t *testing.T) {
+	host, pass := os.Getenv("DB_HOST"), os.Getenv("DB_PASSWD")
+	if host == "" || pass == "" {
+		t.Skip("DB_HOST/DB_PASSWD not set; skipping live schema test")
+	}
+	envOr := func(k, d string) string {
+		if v := os.Getenv(k); v != "" {
+			return v
+		}
+		return d
+	}
+	st, err := Open(host, envOr("DB_PORT", "3306"), envOr("DB_USER", "romm-user"), pass, envOr("DB_NAME", "romm"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	var pid int64
+	if err := st.DB.QueryRowContext(ctx, "SELECT id FROM platforms LIMIT 1").Scan(&pid); err != nil {
+		t.Fatalf("pick platform: %v", err)
+	}
+	tx, err := st.DB.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer tx.Rollback()
+
+	rec := scan.Record{PlatformID: pid, FsPath: "roms/__gotest__", FsName: "__excl__.bin",
+		FsNameNoExt: "__excl__", FsNameNoTags: "excl", FsExtension: "bin", SizeBytes: 1}
+	rec.Digests.CRC32 = "00000000"
+	if err := upsertRom(ctx, tx, rec); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	var id int64
+	tx.QueryRowContext(ctx, "SELECT id FROM roms WHERE platform_id=? AND fs_name=?", pid, "__excl__.bin").Scan(&id)
+
+	if err := excludeRom(ctx, tx, id); err != nil {
+		t.Fatalf("excludeRom against live schema: %v", err)
+	}
+	var romCount, exclCount int
+	tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM roms WHERE id=?", id).Scan(&romCount)
+	tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM virtual_exclusions WHERE platform_id=? AND name=?", pid, "__excl__").Scan(&exclCount)
+	if romCount != 0 || exclCount != 1 {
+		t.Fatalf("after exclude: rom=%d exclusion=%d (want 0,1)", romCount, exclCount)
+	}
+	t.Logf("exclude OK against live schema (rom %d), rolling back", id)
+}
